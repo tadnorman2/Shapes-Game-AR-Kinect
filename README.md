@@ -112,7 +112,9 @@ and a `.jpg` photo) to a `Captures` folder, keeping the last ten, and writes wha
 log. On Windows the folder is
 `%USERPROFILE%\AppData\LocalLow\DefaultCompany\<project folder name>\Captures`; the game
 shows it on screen when it can't find the table. Those files are what's needed to see why the
-table wasn't found.
+table wasn't found. Press **P** (or **F12**) at any time to save them along with a screenshot of
+the game; a `.txt` file beside them records where the game thinks the color camera and the table
+are, so the overlay can be checked against the photo.
 
 ## How it's built
 

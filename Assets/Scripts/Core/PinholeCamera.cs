@@ -56,6 +56,27 @@ namespace ShapesKinect.Core
         }
 
         /// <summary>
+        /// The projection matrix for drawing exactly what this camera sees, in OpenGL's convention
+        /// (as Unity's Camera.projectionMatrix takes it), row by row: view space has X along
+        /// <see cref="Right"/>, Y up (against <see cref="Down"/>) and looks along -Z, and the
+        /// picture fills the viewport. The lens center needn't be the picture's middle. With
+        /// <paramref name="mirrored"/>, for a picture shown flipped left to right and a view whose
+        /// X runs against <see cref="Right"/>.
+        /// </summary>
+        public float[] ProjectionMatrix(float near, float far, bool mirrored = false)
+        {
+            var cx = mirrored ? Width - Cx : Cx;
+            var skew = mirrored ? -Skew : Skew;
+            return new[]
+            {
+                2 * Fx / Width, -2 * skew / Width, 1 - 2 * cx / Width, 0f,
+                0f, 2 * Fy / Height, 2 * Cy / Height - 1, 0f,
+                0f, 0f, -(far + near) / (far - near), -2 * far * near / (far - near),
+                0f, 0f, -1f, 0f,
+            };
+        }
+
+        /// <summary>
         /// The same camera in other coordinates, given how points and directions convert. The
         /// conversion must keep distances, like <see cref="TableFrame.ToTable"/>.
         /// </summary>

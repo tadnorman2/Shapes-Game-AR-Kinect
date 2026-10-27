@@ -82,4 +82,31 @@ public class PinholeCameraTests
     {
         Assert.Null(PinholeCamera.Fit(new List<Vector3> { Vector3.One }, new List<Vector2> { Vector2.One }, 1920, 1080));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProjectionMatrixDrawsWhatTheCameraSees(bool mirrored)
+    {
+        var camera = new PinholeCamera(new Vector3(0.05f, 0f, 0f), new Vector3(1, 0, 0), new Vector3(0, -1, 0), new Vector3(0, 0, 1),
+            1060f, 1058f, 970f, 572f, 1920, 1080, skew: 2f);
+        var m = camera.ProjectionMatrix(0.01f, 20f, mirrored);
+        foreach (var point in new[] { new Vector3(0.3f, -0.2f, 1.1f), new Vector3(-0.5f, 0.4f, 2.5f), new Vector3(0f, 0f, 0.7f) })
+        {
+            var d = point - camera.Position;
+            // View space as the game's camera sets it up: X to screen right, Y up, looking along -Z.
+            var screenRight = mirrored ? -camera.Right : camera.Right;
+            var v = new[] { Vector3.Dot(d, screenRight), -Vector3.Dot(d, camera.Down), -Vector3.Dot(d, camera.Forward), 1f };
+            float Row(int r) => m[r * 4] * v[0] + m[r * 4 + 1] * v[1] + m[r * 4 + 2] * v[2] + m[r * 4 + 3] * v[3];
+            var w = Row(3);
+            var ndcX = Row(0) / w;
+            var ndcY = Row(1) / w;
+            var depth = Row(2) / w;
+            var expected = camera.Project(point);
+            if (mirrored) expected.X = camera.Width - expected.X;
+            Assert.Equal(expected.X, (ndcX + 1) / 2 * camera.Width, 1);
+            Assert.Equal(expected.Y, (1 - ndcY) / 2 * camera.Height, 1);
+            Assert.InRange(depth, -1f, 1f);
+        }
+    }
 }

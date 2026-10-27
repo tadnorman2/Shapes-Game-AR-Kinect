@@ -277,6 +277,12 @@ namespace ShapesKinect.Game
                 Say(showColor ? "Color view." : "Depth view: table grey, objects orange, hands purple.");
             }
 
+            if (Controls.Screenshot && source.Latest != null)
+            {
+                var saved = SaveCapture(source.Latest, screenshot: true);
+                if (saved != null) Say($"Saved a screenshot and what the Kinect saw in {saved}.", 6f);
+            }
+
             if (Controls.SwitchControl)
             {
                 steering = steering == Steering.Stick ? Steering.Hand : Steering.Stick;
@@ -342,9 +348,11 @@ namespace ShapesKinect.Game
         /// <summary>
         /// Saves the depth picture the table was looked for in, and the color picture, to the
         /// Captures folder, keeping the last few. They show what went wrong when the table isn't
-        /// found properly. Returns the folder, or null if saving failed.
+        /// found properly. With <paramref name="screenshot"/>, also what's on screen. A text file
+        /// beside them has the color camera and the table as the game sees them, so the overlay
+        /// can be redrawn on the photo. Returns the folder, or null if saving failed.
         /// </summary>
-        private string SaveCapture(DepthFrame frame)
+        private string SaveCapture(DepthFrame frame, bool screenshot = false)
         {
             try
             {
@@ -353,11 +361,15 @@ namespace ShapesKinect.Game
                 var name = System.IO.Path.Combine(folder, "table-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss"));
                 using (var file = System.IO.File.Create(name + ".depth")) DepthCapture.Save(frame, file);
                 if (source.ColorTexture != null) System.IO.File.WriteAllBytes(name + ".jpg", UprightJpg(source.ColorTexture));
+                System.IO.File.WriteAllText(name + ".txt", Describe());
+                if (screenshot) ScreenCapture.CaptureScreenshot(name + "-screen.png");
                 var old = System.IO.Directory.GetFiles(folder, "table-*.depth").OrderByDescending(f => f).Skip(10);
                 foreach (var depthFile in old)
                 {
                     System.IO.File.Delete(depthFile);
                     System.IO.File.Delete(System.IO.Path.ChangeExtension(depthFile, ".jpg"));
+                    System.IO.File.Delete(System.IO.Path.ChangeExtension(depthFile, ".txt"));
+                    System.IO.File.Delete(System.IO.Path.ChangeExtension(depthFile, null) + "-screen.png");
                 }
                 Debug.Log($"[Shapes] Saved what the Kinect saw to {name}.depth.");
                 return folder;
@@ -367,6 +379,29 @@ namespace ShapesKinect.Game
                 Debug.LogWarning($"[Shapes] Couldn't save what the Kinect saw: {e.Message}");
                 return null;
             }
+        }
+
+        /// <summary>The color camera and the table, in Kinect camera space, as plain text.</summary>
+        private string Describe()
+        {
+            var text = new System.Text.StringBuilder();
+            var c = source.ColorCamera;
+            text.AppendLine(c == null
+                ? "color camera: none"
+                : System.FormattableString.Invariant($"color camera: position {c.Position} right {c.Right} down {c.Down} forward {c.Forward} fx {c.Fx} fy {c.Fy} cx {c.Cx} cy {c.Cy} skew {c.Skew} size {c.Width}x{c.Height}"));
+            if (tracker.IsCalibrated)
+            {
+                var t = tracker.Surface.Frame;
+                text.AppendLine(System.FormattableString.Invariant($"table: origin {t.Origin} up {t.Up} right {t.Right} forward {t.Forward} area {tracker.Surface.Area}"));
+                tracker.Surface.TraceEdge((x1, z1, x2, z2) =>
+                    text.AppendLine(System.FormattableString.Invariant($"edge {x1} {z1} {x2} {z2}")));
+            }
+            else
+            {
+                text.AppendLine("table: not found");
+            }
+            text.AppendLine($"screen {Screen.width}x{Screen.height}, view {viewCamera.rect}");
+            return text.ToString();
         }
 
         /// <summary>
@@ -401,16 +436,21 @@ namespace ShapesKinect.Game
                 var camera = colorCamera.Transformed(ToView, DirectionToView);
                 viewCamera.transform.SetPositionAndRotation(ToUnity(camera.Position),
                     Quaternion.LookRotation(ToUnity(camera.Forward), -ToUnity(camera.Down)));
-                viewCamera.fieldOfView = camera.VerticalFieldOfView;
                 // The game's world isn't mirrored; if the picture is, relative to it, flip it to match.
                 var flip = Vector3.Dot(viewCamera.transform.right, ToUnity(camera.Right)) < 0f;
                 viewCamera.rect = background.Show(picture, flip);
+                // Exactly the color camera's lens, including its center being off the picture's middle.
+                var m = camera.ProjectionMatrix(viewCamera.nearClipPlane, viewCamera.farClipPlane, flip);
+                var projection = new Matrix4x4();
+                for (var i = 0; i < 16; i++) projection[i / 4, i % 4] = m[i];
+                viewCamera.projectionMatrix = projection;
                 viewCamera.clearFlags = CameraClearFlags.Depth;
                 tableView.gameObject.SetActive(false);
                 return;
             }
 
             background.Hide();
+            viewCamera.ResetProjectionMatrix();
             viewCamera.rect = new Rect(0f, 0f, 1f, 1f);
             viewCamera.clearFlags = CameraClearFlags.SolidColor;
             // The Kinect's depth camera sees about 60 degrees top to bottom.
