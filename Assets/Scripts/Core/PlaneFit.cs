@@ -148,55 +148,11 @@ namespace ShapesKinect.Core
         private static Vector3 TowardCamera(Vector3 normal, Vector3 onPlane) =>
             Vector3.Dot(normal, onPlane) > 0f ? -normal : normal;
 
-        /// <summary>The eigenvector of a symmetric 3x3 matrix with the smallest eigenvalue, by Jacobi rotations.</summary>
+        /// <summary>The eigenvector of a symmetric 3x3 matrix with the smallest eigenvalue.</summary>
         internal static Vector3 SmallestEigenvector(double[,] matrix)
         {
-            var a = (double[,])matrix.Clone();
-            var v = new double[,] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
-            for (var sweep = 0; sweep < 50; sweep++)
-            {
-                var off = Math.Abs(a[0, 1]) + Math.Abs(a[0, 2]) + Math.Abs(a[1, 2]);
-                if (off < 1e-15) break;
-                for (var p = 0; p < 2; p++)
-                {
-                    for (var q = p + 1; q < 3; q++)
-                    {
-                        if (Math.Abs(a[p, q]) < 1e-18) continue;
-                        var theta = (a[q, q] - a[p, p]) / (2 * a[p, q]);
-                        var t = Math.Sign(theta) / (Math.Abs(theta) + Math.Sqrt(theta * theta + 1));
-                        if (theta == 0) t = 1;
-                        var c = 1 / Math.Sqrt(t * t + 1);
-                        var s = t * c;
-                        for (var k = 0; k < 3; k++)
-                        {
-                            var akp = a[k, p];
-                            var akq = a[k, q];
-                            a[k, p] = c * akp - s * akq;
-                            a[k, q] = s * akp + c * akq;
-                        }
-                        for (var k = 0; k < 3; k++)
-                        {
-                            var apk = a[p, k];
-                            var aqk = a[q, k];
-                            a[p, k] = c * apk - s * aqk;
-                            a[q, k] = s * apk + c * aqk;
-                        }
-                        for (var k = 0; k < 3; k++)
-                        {
-                            var vkp = v[k, p];
-                            var vkq = v[k, q];
-                            v[k, p] = c * vkp - s * vkq;
-                            v[k, q] = s * vkp + c * vkq;
-                        }
-                    }
-                }
-            }
-            var smallest = 0;
-            for (var i = 1; i < 3; i++)
-            {
-                if (a[i, i] < a[smallest, smallest]) smallest = i;
-            }
-            return Vector3.Normalize(new Vector3((float)v[0, smallest], (float)v[1, smallest], (float)v[2, smallest]));
+            var v = LinearAlgebra.SmallestEigenvector(matrix);
+            return Vector3.Normalize(new Vector3((float)v[0], (float)v[1], (float)v[2]));
         }
     }
 }
