@@ -62,10 +62,14 @@ in hand control the mouse is the hand.
 
 ### If the editor freezes a few seconds into Play
 
-That's Unity Remote scanning USB for a phone: with a Kinect plugged in, each scan blocks the
-editor for two seconds (the log fills with `Scanning for USB devices : 2000ms`). The project turns
-it off by itself; if it ever comes back, set **Edit → Project Settings → Editor → Unity Remote →
-Device** to **None**.
+With a Kinect streaming, the Unity editor can get stuck in its own USB device scanning: the game
+stops, and the log fills with `Scanning for USB devices : 2000ms`. A built game doesn't scan, so
+play it as a Windows program instead: choose **Shapes Kinect → Build and Run** from Unity's menu
+bar. It builds the game into the `Builds` folder and starts it (**Escape** quits). Next time you
+can start `Builds/ShapesKinect/ShapesKinect.exe` directly, until the code changes.
+
+The project also turns off Unity Remote (**Edit → Project Settings → Editor → Unity Remote →
+Device: None**), which scans USB for phones.
 
 ### Placing the Kinect
 

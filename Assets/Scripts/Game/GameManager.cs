@@ -261,6 +261,9 @@ namespace ShapesKinect.Game
 
         private void HandleInput()
         {
+            // In a built game; the editor ignores it.
+            if (Controls.Quit) Application.Quit();
+
             if (source is SimulatedDepthSource simulated)
             {
                 var key = Controls.NumberKey;

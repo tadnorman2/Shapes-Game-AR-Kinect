@@ -38,6 +38,7 @@ namespace ShapesKinect.Game
         public static bool SwitchControl => Pressed(Keyboard.current?.tabKey) || Pressed(Gamepad.current?.buttonWest);
         public static bool SwitchSource => Pressed(Keyboard.current?.kKey);
         public static bool SwitchView => Pressed(Keyboard.current?.cKey);
+        public static bool Quit => Pressed(Keyboard.current?.escapeKey);
 
         /// <summary>Which number key (1-9) went down this frame, as 0-8, or -1.</summary>
         public static int NumberKey
@@ -68,6 +69,7 @@ namespace ShapesKinect.Game
         public static bool SwitchControl => Input.GetKeyDown(KeyCode.Tab) || Input.GetKeyDown(KeyCode.JoystickButton2);
         public static bool SwitchSource => Input.GetKeyDown(KeyCode.K);
         public static bool SwitchView => Input.GetKeyDown(KeyCode.C);
+        public static bool Quit => Input.GetKeyDown(KeyCode.Escape);
 
         /// <summary>Which number key (1-9) went down this frame, as 0-8, or -1.</summary>
         public static int NumberKey
