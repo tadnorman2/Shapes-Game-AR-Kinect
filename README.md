@@ -100,6 +100,9 @@ Device: None**), which scans USB for phones.
 - At least 50 cm from the nearest part of the table (the Kinect can't see closer), and ideally
   within 2 m of the far edge.
 - The game screen shows the Kinect's view live before you press Space, which helps aim it.
+- High enough to look down on the table: 50-80 cm above it, tilted 30-60 degrees down, works
+  best. From just above the table, looking across it, the Kinect sees only a thin strip of the
+  tabletop, and the game says so when it finds the table.
 - Anywhere from looking almost straight across the table to looking straight down at it works.
   The table is taken to be the highest level surface in view that's at least 30 x 30 cm, so
   keep higher things (shelves, a bed, a chair seat) out of the picture or below the table.

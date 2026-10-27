@@ -329,8 +329,14 @@ namespace ShapesKinect.Game
             edgeLines.Rebuild();
             drawnObstacleVersion = -1;
             state = State.Ready;
-            Debug.Log($"[Shapes] Found the table: {tracker.Surface.Area:0.00} m2, {tracker.Surface.Frame}.");
-            Say($"Found the table: {tracker.Surface.Area:0.00} square meters.");
+            var (width, depth) = tracker.Surface.Extent;
+            var height = tracker.Surface.Frame.CameraPosition.Y;
+            Debug.Log($"[Shapes] Found the table: {tracker.Surface.Area:0.00} m2, about {width:0.00} x {depth:0.00} m, {tracker.Surface.Frame}.");
+            var size = $"Found the table: {tracker.Surface.Area:0.00} square meters, about {width * 100:0} cm across and {depth * 100:0} cm deep.";
+            // Seen from low down, the table is a thin strip at the bottom of the picture.
+            Say(depth < 0.4f || height < 0.35f
+                ? size + $" The Kinect is only {height * 100:0} cm above it and sees just a strip: raise it and tilt it further down so the table fills more of the picture, then press R."
+                : size, depth < 0.4f || height < 0.35f ? 12f : 4f);
         }
 
         /// <summary>
@@ -346,7 +352,7 @@ namespace ShapesKinect.Game
                 System.IO.Directory.CreateDirectory(folder);
                 var name = System.IO.Path.Combine(folder, "table-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss"));
                 using (var file = System.IO.File.Create(name + ".depth")) DepthCapture.Save(frame, file);
-                if (source.ColorTexture != null) System.IO.File.WriteAllBytes(name + ".jpg", source.ColorTexture.EncodeToJPG(85));
+                if (source.ColorTexture != null) System.IO.File.WriteAllBytes(name + ".jpg", UprightJpg(source.ColorTexture));
                 var old = System.IO.Directory.GetFiles(folder, "table-*.depth").OrderByDescending(f => f).Skip(10);
                 foreach (var depthFile in old)
                 {
@@ -361,6 +367,23 @@ namespace ShapesKinect.Game
                 Debug.LogWarning($"[Shapes] Couldn't save what the Kinect saw: {e.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The color picture as a JPEG, the right way up: it's stored with its top row first,
+        /// where textures expect the bottom one.
+        /// </summary>
+        private static byte[] UprightJpg(Texture2D picture)
+        {
+            var pixels = picture.GetPixels32();
+            int width = picture.width, height = picture.height;
+            var flipped = new Color32[pixels.Length];
+            for (var y = 0; y < height; y++) System.Array.Copy(pixels, y * width, flipped, (height - 1 - y) * width, width);
+            var upright = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            upright.SetPixels32(flipped);
+            var jpg = upright.EncodeToJPG(85);
+            Destroy(upright);
+            return jpg;
         }
 
         /// <summary>

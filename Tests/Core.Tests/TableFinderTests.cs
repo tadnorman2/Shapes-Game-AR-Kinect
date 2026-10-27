@@ -44,6 +44,24 @@ public class TableFinderTests
     }
 
     [Fact]
+    public void FindsAShallowDeskInFrontOfAWall()
+    {
+        // Like a real capture: the Kinect 20 cm above a desk, tilted 12 degrees down, with the
+        // wall 30 cm past the desk's front edge filling most of the picture.
+        var room = new SimulatedTable
+        {
+            PitchDegrees = 12f, SensorPosition = new Vector3(0f, 0.2f, -0.1f), TableNear = 0.45f,
+            TableDepth = 0.3f, TableWidth = 1.4f, WallDistance = 0.75f, Noise = 0.004f,
+        };
+        var tracker = new TableTracker();
+        Assert.True(tracker.Calibrate(room.Render(512, 424, new Random(1))));
+        Assert.Equal(0.2f, tracker.Surface.Frame.CameraPosition.Y, 2);
+        var (width, depth) = tracker.Surface.Extent;
+        Assert.InRange(depth, 0.15f, 0.35f);
+        Assert.InRange(width, 0.5f, 1.45f);
+    }
+
+    [Fact]
     public void AnEmptyHintFromTheKinectIsIgnored()
     {
         var room = new SimulatedTable();

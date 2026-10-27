@@ -40,6 +40,24 @@ namespace ShapesKinect.Core
             }
         }
 
+        /// <summary>How far the surface reaches side to side (X) and away from the Kinect (Z), in meters.</summary>
+        public (float width, float depth) Extent
+        {
+            get
+            {
+                float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+                for (var i = 0; i < cells.Length; i++)
+                {
+                    if (!cells[i]) continue;
+                    minX = Math.Min(minX, Grid.CenterX(i));
+                    maxX = Math.Max(maxX, Grid.CenterX(i));
+                    minZ = Math.Min(minZ, Grid.CenterZ(i));
+                    maxZ = Math.Max(maxZ, Grid.CenterZ(i));
+                }
+                return minX > maxX ? (0f, 0f) : (maxX - minX + Grid.CellSize, maxZ - minZ + Grid.CellSize);
+            }
+        }
+
         /// <summary>Calls <paramref name="segment"/> with each piece of the line around the surface's edge.</summary>
         public void TraceEdge(Action<float, float, float, float> segment) => Outline.Trace(Grid, IsSurface, segment);
 
