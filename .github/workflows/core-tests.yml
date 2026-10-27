@@ -1,7 +1,8 @@
 name: Core tests
 
 # The game's core logic (finding the table, objects on it, the rules) has no Unity dependency, so
-# it's tested here with plain .NET on every push. Unity itself isn't needed.
+# it's tested here with plain .NET on every push. The Unity scripts are compiled against Unity's
+# API too, to catch mistakes early. Unity itself isn't needed.
 on:
   push:
   pull_request:
@@ -19,3 +20,6 @@ jobs:
 
       - name: Run tests
         run: dotnet test Tests/Core.Tests --logger "console;verbosity=normal"
+
+      - name: Compile Unity scripts
+        run: dotnet build Tests/UnityCompile
