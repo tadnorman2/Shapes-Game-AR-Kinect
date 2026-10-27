@@ -32,8 +32,9 @@ the Kinect and the simulated table.
 You need Windows, a Kinect v2 with its PC adapter, and:
 
 1. **Kinect for Windows SDK 2.0**, from Microsoft (you have this if `Kinect-Test-1` runs).
-2. **Unity 6** through [Unity Hub](https://unity.com/download). The project says 6000.0.23f1;
-   any Unity 6 version works, and Hub offers to open it with the one you have.
+2. **Unity 2022.3.22f1** through [Unity Hub](https://unity.com/download) (**Installs → Install
+   Editor → Archive** for older versions). Other 2022.3 versions should work too; Hub offers to
+   open the project with one you have.
 3. **Microsoft's Kinect v2 Unity plugin**: download *Kinect for Windows Unity Pro packages*
    (`KinectForWindows_UnityPro_2.0.1410.zip`) from Microsoft's Kinect for Windows downloads.
 
