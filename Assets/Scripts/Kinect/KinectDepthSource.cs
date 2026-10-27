@@ -3,6 +3,7 @@
 #if KINECT_V2
 using System.Collections.Generic;
 using ShapesKinect.Core;
+using ShapesKinect.Game;
 using UnityEngine;
 using NVector2 = System.Numerics.Vector2;
 using NVector3 = System.Numerics.Vector3;
@@ -73,8 +74,10 @@ namespace ShapesKinect.Kinect
 
         public void Tick()
         {
+            Watchdog.Mark("Kinect: working out the color camera");
             if (ColorCamera == null) TryFindColorCamera();
 
+            Watchdog.Mark("Kinect: reading the color picture");
             using (var frame = colorReader.AcquireLatestFrame())
             {
                 if (frame != null)
@@ -93,6 +96,7 @@ namespace ShapesKinect.Kinect
                 }
             }
 
+            Watchdog.Mark("Kinect: reading depth");
             using (var frame = depthReader.AcquireLatestFrame())
             {
                 if (frame != null)
@@ -114,10 +118,12 @@ namespace ShapesKinect.Kinect
                 }
             }
 
+            Watchdog.Mark("Kinect: reading bodies");
             using (var frame = bodyReader.AcquireLatestFrame())
             {
                 if (frame != null) frame.GetAndRefreshBodyData(bodies);
             }
+            Watchdog.Mark("Kinect: done");
         }
 
         /// <summary>

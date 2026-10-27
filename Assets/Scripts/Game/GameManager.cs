@@ -91,6 +91,7 @@ namespace ShapesKinect.Game
         {
             Application.targetFrameRate = 60;
             Debug.Log($"[Shapes] Starting in Unity {Application.unityVersion}.");
+            Watchdog.Start();
             BuildScene();
             UseKinect();
         }
@@ -171,6 +172,7 @@ namespace ShapesKinect.Game
 
         private void OnDestroy()
         {
+            Watchdog.Stop();
             kinect?.Dispose();
             simulator?.Dispose();
         }
@@ -178,6 +180,7 @@ namespace ShapesKinect.Game
         private void Update()
         {
             watch.Restart();
+            Watchdog.Mark("reading the Kinect");
             source.Tick();
             slowestTick = System.Math.Max(slowestTick, watch.Elapsed.TotalMilliseconds);
             if (!loggedDepth && source.Latest != null)
@@ -210,12 +213,15 @@ namespace ShapesKinect.Game
                 lastFrameNumber = frame.Number;
                 framesThisSecond++;
                 watch.Restart();
+                Watchdog.Mark("tracking objects on the table");
                 if (tracker.IsCalibrated) tracker.Update(frame, frame.Width > 300 ? 2 : 1);
                 slowestTracking = System.Math.Max(slowestTracking, watch.Elapsed.TotalMilliseconds);
             }
             watch.Restart();
+            Watchdog.Mark("updating the view");
             UpdateView(frame, newFrame);
             slowestView = System.Math.Max(slowestView, watch.Elapsed.TotalMilliseconds);
+            Watchdog.Mark("game logic");
             LogProgress();
             rateTimer += Time.unscaledDeltaTime;
             if (rateTimer >= 1f)
@@ -249,6 +255,8 @@ namespace ShapesKinect.Game
                 foreach (var e in round.Update(Time.deltaTime, move.x, move.y)) OnRoundEvent(e);
             }
             if (round != null) visuals.Show(round, steering == Steering.Hand ? hand : null);
+            // Until the next Update, Unity itself has the main thread: rendering, the editor, other scripts.
+            Watchdog.Mark("Unity, between game updates (rendering, editor)");
         }
 
         private void HandleInput()
@@ -491,6 +499,7 @@ namespace ShapesKinect.Game
 
         private void OnGUI()
         {
+            Watchdog.Mark("drawing on-screen text");
             var unit = Screen.height / 40f;
             if (big == null)
             {
@@ -579,6 +588,7 @@ namespace ShapesKinect.Game
             }
             if (sourceNote != null) status += "\n" + sourceNote;
             GUI.Label(new Rect(unit * 0.5f, height - unit * 4.5f, width - unit, unit * 4.2f), status, small);
+            Watchdog.Mark("Unity, between game updates (rendering, editor)");
         }
     }
 }
