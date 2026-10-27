@@ -5,19 +5,14 @@ using UnityEngine;
 namespace ShapesKinect.Game
 {
     /// <summary>
-    /// Shows what the Kinect sees as a live 3D surface. With a color camera, it's painted with the
-    /// camera's picture, so it looks like the real room; otherwise, or when asked, it's colored by
-    /// what each part is: the table, things standing on it, a hand above it, and everything else.
+    /// Shows what the Kinect's depth camera sees as a live 3D surface, colored by what each part
+    /// is: the table, things standing on it, a hand above it, and everything else around it.
     /// </summary>
     public sealed class TableView : MonoBehaviour
     {
         private Mesh mesh;
-        private MeshRenderer meshRenderer;
-        private Material heightMaterial;
-        private Material colorMaterial;
         private Vector3[] vertices = new Vector3[0];
         private Color32[] colors = new Color32[0];
-        private Vector2[] uvs = new Vector2[0];
         private bool[] valid = new bool[0];
         private float[] depths = new float[0];
         private readonly List<int> triangles = new List<int>();
@@ -32,24 +27,16 @@ namespace ShapesKinect.Game
             mesh = new Mesh { name = "Kinect view" };
             mesh.MarkDynamic();
             gameObject.AddComponent<MeshFilter>().sharedMesh = mesh;
-            meshRenderer = gameObject.AddComponent<MeshRenderer>();
-            heightMaterial = Materials.VertexColor();
-            colorMaterial = Materials.UnlitTexture();
-            meshRenderer.sharedMaterial = heightMaterial;
+            gameObject.AddComponent<MeshRenderer>().sharedMaterial = Materials.VertexColor();
         }
 
         /// <summary>
         /// Rebuilds the surface from <paramref name="frame"/>. Once <paramref name="tracker"/> has
-        /// found the table, the view is in table coordinates; before that, it's in the Kinect's own
-        /// view. With <paramref name="colorTexture"/>, it's painted with the color camera's picture;
-        /// without, it's colored by height once the table is found, and shaded by distance before.
+        /// found the table, the view is in table coordinates and colored by height; before that,
+        /// it's in the Kinect's own view and shaded by distance.
         /// </summary>
-        public void Show(DepthFrame frame, TableTracker tracker, Texture2D colorTexture)
+        public void Show(DepthFrame frame, TableTracker tracker)
         {
-            var useColor = colorTexture != null && frame.ColorCoordinates != null;
-            meshRenderer.sharedMaterial = useColor ? colorMaterial : heightMaterial;
-            if (useColor) colorMaterial.mainTexture = colorTexture;
-
             // 256 columns looks smooth and is still quick to rebuild every frame.
             var step = Mathf.Max(1, frame.Width / 256);
             var columns = (frame.Width + step - 1) / step;
@@ -59,7 +46,6 @@ namespace ShapesKinect.Game
             {
                 vertices = new Vector3[count];
                 colors = new Color32[count];
-                uvs = new Vector2[count];
                 valid = new bool[count];
                 depths = new float[count];
                 mesh.Clear();
@@ -71,17 +57,9 @@ namespace ShapesKinect.Game
                 for (var column = 0; column < columns; column++)
                 {
                     var i = row * columns + column;
-                    var pixel = row * step * frame.Width + column * step;
-                    var p = frame.Points[pixel];
+                    var p = frame[column * step, row * step];
                     valid[i] = DepthFrame.IsValid(p);
                     depths[i] = p.Z;
-                    if (useColor && valid[i])
-                    {
-                        var c = frame.ColorCoordinates[pixel];
-                        // Parts the color camera can't see, like the very edge of the view, are left out.
-                        if (float.IsNaN(c.X) || c.X < 0f || c.X > 1f || c.Y < 0f || c.Y > 1f) valid[i] = false;
-                        else uvs[i] = new Vector2(c.X, c.Y);
-                    }
                     if (!valid[i])
                     {
                         vertices[i] = Vector3.zero;
@@ -137,7 +115,6 @@ namespace ShapesKinect.Game
             mesh.SetTriangles(new int[0], 0);
             mesh.vertices = vertices;
             mesh.colors32 = colors;
-            mesh.uv = uvs;
             mesh.SetTriangles(triangles, 0);
             mesh.RecalculateBounds();
         }

@@ -91,6 +91,7 @@ namespace Windows.Kinect
     {
         public void MapDepthFrameToCameraSpace(ushort[] depthFrameData, CameraSpacePoint[] cameraSpacePoints) { }
         public void MapDepthFrameToColorSpace(ushort[] depthFrameData, ColorSpacePoint[] colorSpacePoints) { }
+        public void MapCameraPointsToColorSpace(CameraSpacePoint[] cameraPoints, ColorSpacePoint[] colorPoints) { }
     }
 
     public sealed class KinectSensor

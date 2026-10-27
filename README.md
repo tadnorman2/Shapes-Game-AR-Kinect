@@ -25,9 +25,15 @@ directly, so this version can.
    hand and arm above it don't get in the way.
 
 **R** (gamepad **Y**) finds the table again, e.g. after moving the Kinect. **K** switches between
-the Kinect and the simulated table. **C** switches between the color view (the Kinect's color
-camera painted onto what its depth camera sees) and the depth view (table grey, objects orange,
-hands purple), which is handy for seeing what the game counts as an object.
+the Kinect and the simulated table. The screen shows the Kinect's color camera like a
+normal video, with the ball, shapes and outlines drawn on top, lined up with the real table: the
+game works out exactly where the color camera is and how its lens sees from the Kinect's own
+calibration. **C** switches to the depth view (a 3D surface of what the depth camera sees: table
+grey, objects orange, hands purple), which is handy for seeing what the game counts as an object.
+
+The game writes a line to Unity's log every two seconds saying how it's running (lines start
+with `[Shapes]`), which helps track down slowdowns. In the editor the log is the Console; the full
+file is `%LOCALAPPDATA%\Unity\Editor\Editor.log`.
 
 ## Setting up
 

@@ -44,6 +44,7 @@ namespace ShapesKinect.Game
 
         private readonly TableTracker tracker = new TableTracker();
         private TableView tableView;
+        private BackgroundView background;
         private LineLayer edgeLines;
         private LineLayer objectLines;
         private ShapeVisuals visuals;
@@ -64,6 +65,19 @@ namespace ShapesKinect.Game
 
         private readonly List<NVector3> hands = new List<NVector3>();
 
+        // What the game logs, to find out where time goes and where it stops if Unity hangs.
+        private readonly System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
+        private double slowestTick;
+        private double slowestTracking;
+        private double slowestView;
+        private float slowestFrame;
+        private float nextLog;
+        private bool loggedDepth;
+        private bool loggedColor;
+
+        /// <summary>How often the game writes a line about how it's running to Unity's log.</summary>
+        private const float LogInterval = 2f;
+
         /// <summary>Where the simulated hand is held, in table coordinates: 30 cm above the table.</summary>
         private const float SimulatedHandHeight = 0.3f;
 
@@ -76,6 +90,7 @@ namespace ShapesKinect.Game
         private void Start()
         {
             Application.targetFrameRate = 60;
+            Debug.Log($"[Shapes] Starting in Unity {Application.unityVersion}.");
             BuildScene();
             UseKinect();
         }
@@ -92,9 +107,7 @@ namespace ShapesKinect.Game
             viewCamera.backgroundColor = new Color(0.07f, 0.08f, 0.12f);
             viewCamera.nearClipPlane = 0.05f;
             viewCamera.farClipPlane = 20f;
-            // The Kinect's depth camera sees about 60 degrees top to bottom.
-            viewCamera.fieldOfView = 60f;
-            ViewFromKinect();
+            viewCamera.cullingMask = ~(1 << BackgroundView.Layer);
 
             if (FindFirstObjectByType<Light>() == null)
             {
@@ -105,6 +118,7 @@ namespace ShapesKinect.Game
             }
 
             tableView = new GameObject("Kinect view").AddComponent<TableView>();
+            background = new GameObject("Background").AddComponent<BackgroundView>();
             edgeLines = new GameObject("Table edge").AddComponent<LineLayer>();
             edgeLines.SetColor(new Color(0.4f, 0.9f, 1f));
             objectLines = new GameObject("Objects").AddComponent<LineLayer>();
@@ -115,7 +129,12 @@ namespace ShapesKinect.Game
         private void UseKinect()
         {
 #if KINECT_V2
-            if (kinect == null) kinect = KinectDepthSource.TryOpen();
+            if (kinect == null)
+            {
+                Debug.Log("[Shapes] Opening the Kinect.");
+                kinect = KinectDepthSource.TryOpen();
+                Debug.Log(kinect == null ? "[Shapes] No Kinect runtime." : "[Shapes] Kinect opened, waiting for pictures.");
+            }
             if (kinect != null)
             {
                 SetSource(kinect, null);
@@ -140,7 +159,7 @@ namespace ShapesKinect.Game
             sourceNote = note;
             waitingForKinectSince = -1f;
             lastFrameNumber = -1;
-            ViewFromKinect();
+            Debug.Log($"[Shapes] Using {newSource.Name}.");
             // A different camera means a different view of the table: find it again.
             tracker.Reset();
             EndRound();
@@ -158,7 +177,19 @@ namespace ShapesKinect.Game
 
         private void Update()
         {
+            watch.Restart();
             source.Tick();
+            slowestTick = System.Math.Max(slowestTick, watch.Elapsed.TotalMilliseconds);
+            if (!loggedDepth && source.Latest != null)
+            {
+                loggedDepth = true;
+                Debug.Log($"[Shapes] First depth picture: {source.Latest.Width} x {source.Latest.Height}.");
+            }
+            if (!loggedColor && source.ColorTexture != null)
+            {
+                loggedColor = true;
+                Debug.Log($"[Shapes] First color picture: {source.ColorTexture.width} x {source.ColorTexture.height}.");
+            }
             if (waitingForKinectSince >= 0f && source.Latest == null &&
                 Time.unscaledTime - waitingForKinectSince > KinectTimeout)
             {
@@ -178,9 +209,14 @@ namespace ShapesKinect.Game
             {
                 lastFrameNumber = frame.Number;
                 framesThisSecond++;
+                watch.Restart();
                 if (tracker.IsCalibrated) tracker.Update(frame, frame.Width > 300 ? 2 : 1);
-                tableView.Show(frame, tracker, showColor ? source.ColorTexture : null);
+                slowestTracking = System.Math.Max(slowestTracking, watch.Elapsed.TotalMilliseconds);
             }
+            watch.Restart();
+            UpdateView(frame, newFrame);
+            slowestView = System.Math.Max(slowestView, watch.Elapsed.TotalMilliseconds);
+            LogProgress();
             rateTimer += Time.unscaledDeltaTime;
             if (rateTimer >= 1f)
             {
@@ -276,33 +312,84 @@ namespace ShapesKinect.Game
             tracker.Surface.TraceEdge(edgeLines.Add);
             edgeLines.Rebuild();
             drawnObstacleVersion = -1;
-            PlaceCamera();
             state = State.Ready;
+            Debug.Log($"[Shapes] Found the table: {tracker.Surface.Area:0.00} m2, {tracker.Surface.Frame}.");
             Say($"Found the table: {tracker.Surface.Area:0.00} square meters.");
         }
 
         /// <summary>
-        /// Before the table is found, the view shows depth as the Kinect sees it, from the Kinect's
-        /// own position: put the game's camera there.
+        /// Sets up what the screen shows this frame. Normally that's the Kinect's color picture,
+        /// with the game's camera placed exactly where the color camera is, so the ball and shapes
+        /// line up with the real table. In the depth view (C), or without a color camera, it's a
+        /// 3D surface of what the depth camera sees, from the depth camera's position.
         /// </summary>
-        private void ViewFromKinect()
+        private void UpdateView(DepthFrame frame, bool newFrame)
         {
-            viewCamera.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            var picture = source.ColorTexture;
+            var colorCamera = source.ColorCamera;
+            if (showColor && picture != null && colorCamera != null)
+            {
+                var camera = colorCamera.Transformed(ToView, DirectionToView);
+                viewCamera.transform.SetPositionAndRotation(ToUnity(camera.Position),
+                    Quaternion.LookRotation(ToUnity(camera.Forward), -ToUnity(camera.Down)));
+                viewCamera.fieldOfView = camera.VerticalFieldOfView;
+                // The game's world isn't mirrored; if the picture is, relative to it, flip it to match.
+                var flip = Vector3.Dot(viewCamera.transform.right, ToUnity(camera.Right)) < 0f;
+                viewCamera.rect = background.Show(picture, flip);
+                viewCamera.clearFlags = CameraClearFlags.Depth;
+                tableView.gameObject.SetActive(false);
+                return;
+            }
+
+            background.Hide();
+            viewCamera.rect = new Rect(0f, 0f, 1f, 1f);
+            viewCamera.clearFlags = CameraClearFlags.SolidColor;
+            // The Kinect's depth camera sees about 60 degrees top to bottom.
+            viewCamera.fieldOfView = 60f;
+            if (tracker.IsCalibrated)
+            {
+                var table = tracker.Surface.Frame;
+                viewCamera.transform.SetPositionAndRotation(ToUnity(table.CameraPosition),
+                    Quaternion.LookRotation(ToUnity(table.CameraLook), ToUnity(table.CameraUp)));
+            }
+            else
+            {
+                viewCamera.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            }
+            tableView.gameObject.SetActive(true);
+            if (newFrame) tableView.Show(frame, tracker);
         }
 
-        /// <summary>Puts the game's camera where the Kinect is, so the screen shows the table as the Kinect sees it.</summary>
-        private void PlaceCamera()
+        /// <summary>
+        /// Converts a camera-space point to the game world: table coordinates once the table is
+        /// found, and before that the camera's own view, unmirrored, which is what the depth view shows.
+        /// </summary>
+        private NVector3 ToView(NVector3 point) =>
+            tracker.IsCalibrated ? tracker.Surface.Frame.ToTable(point) : new NVector3(-point.X, point.Y, point.Z);
+
+        private NVector3 DirectionToView(NVector3 direction) =>
+            tracker.IsCalibrated ? tracker.Surface.Frame.DirectionToTable(direction) : new NVector3(-direction.X, direction.Y, direction.Z);
+
+        private static Vector3 ToUnity(NVector3 v) => new Vector3(v.X, v.Y, v.Z);
+
+        /// <summary>Writes a line to Unity's log every couple of seconds about how the game is running.</summary>
+        private void LogProgress()
         {
-            var frame = tracker.Surface.Frame;
-            var position = frame.CameraPosition;
-            var look = frame.CameraLook;
-            var up = frame.CameraUp;
-            viewCamera.transform.position = new Vector3(position.X, position.Y, position.Z);
-            viewCamera.transform.rotation = Quaternion.LookRotation(new Vector3(look.X, look.Y, look.Z), new Vector3(up.X, up.Y, up.Z));
+            slowestFrame = Mathf.Max(slowestFrame, Time.unscaledDeltaTime * 1000f);
+            if (Time.realtimeSinceStartup < nextLog) return;
+            nextLog = Time.realtimeSinceStartup + LogInterval;
+            Debug.Log($"[Shapes] {Time.realtimeSinceStartup:0.0} s · {source.Name} · {state} · {depthRate:0} depth pictures/s · " +
+                $"slowest in the last {LogInterval:0} s: frame {slowestFrame:0} ms, Kinect {slowestTick:0} ms, " +
+                $"tracking {slowestTracking:0} ms, view {slowestView:0} ms · memory {System.GC.GetTotalMemory(false) / 1048576} MB");
+            slowestFrame = 0f;
+            slowestTick = 0;
+            slowestTracking = 0;
+            slowestView = 0;
         }
 
         private void StartRound()
         {
+            Debug.Log("[Shapes] Starting a round.");
             round = new GameRound(tracker.PlayArea());
             state = State.Playing;
             newBest = false;

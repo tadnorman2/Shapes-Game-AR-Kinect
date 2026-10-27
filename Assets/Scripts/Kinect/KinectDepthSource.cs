@@ -18,6 +18,7 @@ namespace ShapesKinect.Kinect
         public string Name => "Kinect v2";
         public DepthFrame Latest { get; private set; }
         public Texture2D ColorTexture { get; private set; }
+        public PinholeCamera ColorCamera { get; private set; }
 
         /// <summary>Whether a Kinect is plugged in and powered, as far as the runtime knows.</summary>
         public bool IsAvailable => sensor != null && sensor.IsAvailable;
@@ -28,7 +29,6 @@ namespace ShapesKinect.Kinect
         private readonly Windows.Kinect.BodyFrameReader bodyReader;
         private readonly ushort[] depthData;
         private readonly Windows.Kinect.CameraSpacePoint[] cameraPoints;
-        private readonly Windows.Kinect.ColorSpacePoint[] colorPoints;
         private readonly byte[] colorData;
         private readonly int colorWidth;
         private readonly int colorHeight;
@@ -45,11 +45,10 @@ namespace ShapesKinect.Kinect
             var height = depthDescription.Height;
             depthData = new ushort[width * height];
             cameraPoints = new Windows.Kinect.CameraSpacePoint[width * height];
-            colorPoints = new Windows.Kinect.ColorSpacePoint[width * height];
             frames = new DepthFrame[2];
             for (var i = 0; i < frames.Length; i++)
             {
-                frames[i] = new DepthFrame(width, height) { ColorCoordinates = new NVector2[width * height] };
+                frames[i] = new DepthFrame(width, height);
             }
 
             var colorDescription = sensor.ColorFrameSource.CreateFrameDescription(Windows.Kinect.ColorImageFormat.Rgba);
@@ -74,6 +73,8 @@ namespace ShapesKinect.Kinect
 
         public void Tick()
         {
+            if (ColorCamera == null) TryFindColorCamera();
+
             using (var frame = colorReader.AcquireLatestFrame())
             {
                 if (frame != null)
@@ -98,11 +99,9 @@ namespace ShapesKinect.Kinect
                 {
                     frame.CopyFrameDataToArray(depthData);
                     sensor.CoordinateMapper.MapDepthFrameToCameraSpace(depthData, cameraPoints);
-                    sensor.CoordinateMapper.MapDepthFrameToColorSpace(depthData, colorPoints);
                     var result = frames[nextFrame];
                     nextFrame = 1 - nextFrame;
                     result.Number = ++frameNumber;
-                    var colors = result.ColorCoordinates;
                     for (var i = 0; i < cameraPoints.Length; i++)
                     {
                         var p = cameraPoints[i];
@@ -110,10 +109,6 @@ namespace ShapesKinect.Kinect
                         result.Points[i] = float.IsInfinity(p.Z) || float.IsNaN(p.Z) || p.Z <= 0f
                             ? DepthFrame.Invalid
                             : new NVector3(p.X, p.Y, p.Z);
-                        var c = colorPoints[i];
-                        colors[i] = float.IsInfinity(c.X) || float.IsInfinity(c.Y)
-                            ? new NVector2(float.NaN, float.NaN)
-                            : new NVector2(c.X / colorWidth, c.Y / colorHeight);
                     }
                     Latest = result;
                 }
@@ -122,6 +117,48 @@ namespace ShapesKinect.Kinect
             using (var frame = bodyReader.AcquireLatestFrame())
             {
                 if (frame != null) frame.GetAndRefreshBodyData(bodies);
+            }
+        }
+
+        /// <summary>
+        /// Works out where the color camera is and how its lens maps the world, from the Kinect's
+        /// own factory calibration: asks it where a 3D grid of points lands in the color picture,
+        /// then fits a camera to the answers. Waits until the Kinect is connected, since the
+        /// calibration comes from the device.
+        /// </summary>
+        private void TryFindColorCamera()
+        {
+            if (!sensor.IsAvailable) return;
+            var grid = new List<Windows.Kinect.CameraSpacePoint>();
+            foreach (var depth in new[] { 0.6f, 0.9f, 1.3f, 1.8f, 2.5f, 3.4f })
+            {
+                for (var i = -4; i <= 4; i++)
+                {
+                    for (var j = -3; j <= 3; j++)
+                    {
+                        grid.Add(new Windows.Kinect.CameraSpacePoint { X = i * 0.12f * depth, Y = j * 0.1f * depth, Z = depth });
+                    }
+                }
+            }
+            var cameraPoints = grid.ToArray();
+            var mapped = new Windows.Kinect.ColorSpacePoint[cameraPoints.Length];
+            sensor.CoordinateMapper.MapCameraPointsToColorSpace(cameraPoints, mapped);
+            var points = new List<NVector3>();
+            var pixels = new List<NVector2>();
+            for (var i = 0; i < mapped.Length; i++)
+            {
+                var c = mapped[i];
+                if (float.IsInfinity(c.X) || float.IsNaN(c.X) || c.X < 0 || c.X > colorWidth || c.Y < 0 || c.Y > colorHeight) continue;
+                points.Add(new NVector3(cameraPoints[i].X, cameraPoints[i].Y, cameraPoints[i].Z));
+                pixels.Add(new NVector2(c.X, c.Y));
+            }
+            if (points.Count < 50) return;
+            ColorCamera = PinholeCamera.Fit(points, pixels, colorWidth, colorHeight);
+            if (ColorCamera != null)
+            {
+                Debug.Log($"[Shapes] Color camera found from {points.Count} points: position {ColorCamera.Position}, " +
+                    $"focal {ColorCamera.Fx:0}/{ColorCamera.Fy:0} px, center {ColorCamera.Cx:0},{ColorCamera.Cy:0}, " +
+                    $"view {ColorCamera.VerticalFieldOfView:0.0} degrees tall");
             }
         }
 

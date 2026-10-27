@@ -16,6 +16,7 @@ namespace ShapesKinect.Kinect
         public string Name => "Simulated Kinect";
         public DepthFrame Latest { get; private set; }
         public Texture2D ColorTexture => null;
+        public PinholeCamera ColorCamera => null;
         public SimulatedTable Room { get; } = new SimulatedTable();
 
         /// <summary>Objects the number keys toggle, in the simulated room's coordinates.</summary>

@@ -21,6 +21,12 @@ namespace ShapesKinect.Kinect
         /// <summary>The color camera's newest image, or null without one.</summary>
         Texture2D ColorTexture { get; }
 
+        /// <summary>
+        /// The color camera, in the depth camera's camera space, once it's known; null without one.
+        /// Its image is <see cref="ColorTexture"/> as stored, row 0 at the top.
+        /// </summary>
+        PinholeCamera ColorCamera { get; }
+
         /// <summary>Call once per Unity frame to pick up new images.</summary>
         void Tick();
 
