@@ -55,6 +55,8 @@ namespace ShapesKinect.Game
         private Steering steering = Steering.Stick;
         private GameRound round;
         private string message;
+        /// <summary>Why the found table probably isn't measured well, shown until it's found again.</summary>
+        private string setupWarning;
         private float messageUntil;
         private string popupText;
         private Color popupColor;
@@ -320,6 +322,7 @@ namespace ShapesKinect.Game
                 Say("Waiting for the first picture from the Kinect.");
                 return;
             }
+            setupWarning = null;
             var report = new List<string>();
             var found = tracker.Calibrate(frame, report);
             Debug.Log($"[Shapes] Looking for the table: {string.Join("; ", report)}.");
@@ -338,12 +341,39 @@ namespace ShapesKinect.Game
             var (width, depth) = tracker.Surface.Extent;
             var height = tracker.Surface.Frame.CameraPosition.Y;
             Debug.Log($"[Shapes] Found the table: {tracker.Surface.Area:0.00} m2, about {width:0.00} x {depth:0.00} m, {tracker.Surface.Frame}.");
-            var size = $"Found the table: {tracker.Surface.Area:0.00} square meters, about {width * 100:0} cm across and {depth * 100:0} cm deep.";
-            // Seen from low down, the table is a thin strip at the bottom of the picture.
-            Say(depth < 0.4f || height < 0.35f
-                ? size + $" The Kinect is only {height * 100:0} cm above it and sees just a strip: raise it and tilt it further down so the table fills more of the picture, then press R."
-                : size, depth < 0.4f || height < 0.35f ? 12f : 4f);
+            Say($"Found the table: {tracker.Surface.Area:0.00} square meters, about {width * 100:0} cm across and {depth * 100:0} cm deep.");
+            setupWarning = CheckSetup(frame);
+            if (setupWarning != null) Debug.LogWarning("[Shapes] " + setupWarning);
         }
+
+        /// <summary>
+        /// Whether the Kinect sees the table steeply enough to measure it, or what's wrong if not.
+        /// Looking across a table at a shallow angle, the Kinect's depth of the far part comes out
+        /// wrong (it reads as raised), so the table's plane comes out tilted and the arena with it.
+        /// The Kinect's own tilt sensor shows that tilt up.
+        /// </summary>
+        private string CheckSetup(DepthFrame frame)
+        {
+            var table = tracker.Surface.Frame;
+            var camera = table.CameraPosition;
+            var lookAngle = Mathf.Asin(Mathf.Clamp01(camera.Y / camera.Length())) * Mathf.Rad2Deg;
+            var tilt = frame.UpHint is NVector3 hint && hint.LengthSquared() > 0.5f
+                ? Mathf.Acos(Mathf.Clamp(NVector3.Dot(NVector3.Normalize(hint), table.Up), -1f, 1f)) * Mathf.Rad2Deg
+                : 0f;
+            if (lookAngle >= MinLookAngle && tilt <= MaxTilt) return null;
+            var why = lookAngle < MinLookAngle
+                ? $"The Kinect looks across the table at only {lookAngle:0} degrees, from {camera.Y * 100:0} cm above it"
+                : "The Kinect sees the table at a shallow angle";
+            var effect = tilt > MaxTilt
+                ? $", so it measures the table tilted {tilt:0} degrees against its own tilt sensor and the arena won't line up with it."
+                : ", too shallow to measure the far part of it well.";
+            return why + effect + $" Raise the Kinect (50 cm or more above the table) and tilt it down so it looks at the table at {MinLookAngle:0} degrees or steeper, then press R.";
+        }
+
+        /// <summary>Below this many degrees between the Kinect's view of the table and the tabletop, its depth of the table goes wrong.</summary>
+        private const float MinLookAngle = 30f;
+        /// <summary>A table measured tilted more than this many degrees against the Kinect's tilt sensor is suspect.</summary>
+        private const float MaxTilt = 6f;
 
         /// <summary>
         /// Saves the depth picture the table was looked for in, and the color picture, to the
@@ -671,6 +701,12 @@ namespace ShapesKinect.Game
                 GUI.Box(new Rect(width * 0.2f, height * 0.12f, width * 0.6f, unit * 7f), GUIContent.none, panel);
                 GUI.Label(new Rect(width * 0.2f, height * 0.12f + unit * 0.5f, width * 0.6f, unit * 2.5f), title, big);
                 GUI.Label(new Rect(width * 0.22f, height * 0.12f + unit * 3f, width * 0.56f, unit * 3.5f), body, medium);
+            }
+
+            if (setupWarning != null && state == State.Ready)
+            {
+                GUI.Box(new Rect(width * 0.15f, height * 0.12f + unit * 7.5f, width * 0.7f, unit * 4.2f), GUIContent.none, panel);
+                GUI.Label(new Rect(width * 0.16f, height * 0.12f + unit * 7.6f, width * 0.68f, unit * 4f), setupWarning, medium);
             }
 
             if (message != null && Time.unscaledTime < messageUntil)
