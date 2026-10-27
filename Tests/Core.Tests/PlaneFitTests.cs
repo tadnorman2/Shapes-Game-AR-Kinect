@@ -20,7 +20,6 @@ public class PlaneFitTests
         // as far from "up" as a table's would be, but it faces the camera from the front.
         var random = new Random(3);
         var pitch = Math.PI / 4;
-        var wallNormalRoom = new Vector3(0f, 0f, -1f);
         var up = new Vector3(0f, (float)Math.Cos(pitch), (float)Math.Sin(pitch));
         var forward = new Vector3(0f, (float)-Math.Sin(pitch), (float)Math.Cos(pitch));
         Vector3 ToCamera(Vector3 room) => new Vector3(-room.X, Vector3.Dot(room, up), Vector3.Dot(room, forward));
@@ -30,7 +29,6 @@ public class PlaneFitTests
             var room = new Vector3((float)(random.NextDouble() - 0.5), (float)(random.NextDouble() - 0.5), 1.5f);
             points.Add(ToCamera(room));
         }
-        Assert.True(Vector3.Dot(ToCamera(wallNormalRoom), up) < 1f);
         Assert.Null(PlaneFit.FindUpFacing(points, new Vector3(0f, 1f, 0f)));
     }
 

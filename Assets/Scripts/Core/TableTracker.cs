@@ -26,6 +26,13 @@ namespace ShapesKinect.Core
             return true;
         }
 
+        /// <summary>Forgets the table, e.g. when switching to a different Kinect.</summary>
+        public void Reset()
+        {
+            Surface = null;
+            Obstacles = null;
+        }
+
         /// <summary>Updates the object map from <paramref name="frame"/>, using every <paramref name="step"/>th pixel each way.</summary>
         public void Update(DepthFrame frame, int step = 1)
         {

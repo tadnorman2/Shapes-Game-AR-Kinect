@@ -113,6 +113,14 @@ public class TableTrackerTests
     }
 
     [Fact]
+    public void ResetForgetsTheTable()
+    {
+        var tracker = Calibrated(new SimulatedTable());
+        tracker.Reset();
+        Assert.False(tracker.IsCalibrated);
+    }
+
+    [Fact]
     public void PointsConvertBackAndForth()
     {
         var room = new SimulatedTable();
