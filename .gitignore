@@ -1,0 +1,27 @@
+# Unity
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+*.csproj
+*.sln
+*.suo
+*.user
+*.pidb
+*.booproj
+*.unityproj
+.vs/
+.idea/
+.DS_Store
+*.apk
+*.aab
+crashlytics-buildid.txt
+
+# The core tests' project is hand-written, unlike Unity's generated ones.
+!/Tests/**/*.csproj
+/Tests/**/bin/
+/Tests/**/obj/

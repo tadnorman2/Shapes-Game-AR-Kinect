@@ -1,0 +1,21 @@
+name: Core tests
+
+# The game's core logic (finding the table, objects on it, the rules) has no Unity dependency, so
+# it's tested here with plain .NET on every push. Unity itself isn't needed.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Run tests
+        run: dotnet test Tests/Core.Tests --logger "console;verbosity=normal"
