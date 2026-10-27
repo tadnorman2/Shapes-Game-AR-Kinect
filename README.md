@@ -60,6 +60,13 @@ Without the plugin, or without a Kinect plugged in, the game runs on a **simulat
 instead, so it can be tried anywhere. Number keys **1-3** put a cup, a book and a box on it, and
 in hand control the mouse is the hand.
 
+### If the editor freezes a few seconds into Play
+
+That's Unity Remote scanning USB for a phone: with a Kinect plugged in, each scan blocks the
+editor for two seconds (the log fills with `Scanning for USB devices : 2000ms`). The project turns
+it off by itself; if it ever comes back, set **Edit → Project Settings → Editor → Unity Remote →
+Device** to **None**.
+
 ### Placing the Kinect
 
 - At one edge of the table, tilted down across it, so the whole tabletop is in view.

@@ -6,10 +6,16 @@ using UnityEditor.Build;
 namespace ShapesKinect.EditorTools
 {
     /// <summary>
-    /// Turns the KINECT_V2 scripting symbol on when Microsoft's Kinect v2 Unity plugin is in the
-    /// project, and off when it isn't, so the game uses a real Kinect without any manual setup and
-    /// still compiles without the plugin. Lives in its own assembly so it keeps working even if the
-    /// game's scripts don't compile.
+    /// Sets the editor up for the Kinect:
+    ///
+    /// - Turns the KINECT_V2 scripting symbol on when Microsoft's Kinect v2 Unity plugin is in the
+    ///   project, and off when it isn't, so the game uses a real Kinect without any manual setup and
+    ///   still compiles without the plugin.
+    /// - Turns off Unity Remote's search for phones. It scans USB every few seconds, and with a
+    ///   Kinect plugged in each scan takes two seconds and blocks the editor ("Scanning for USB
+    ///   devices : 2000ms" in the log), which freezes Play mode.
+    ///
+    /// Lives in its own assembly so it keeps working even if the game's scripts don't compile.
     /// </summary>
     [InitializeOnLoad]
     internal static class KinectSetup
@@ -23,6 +29,12 @@ namespace ShapesKinect.EditorTools
 
         private static void Check()
         {
+            if (EditorSettings.unityRemoteDevice != "None")
+            {
+                EditorSettings.unityRemoteDevice = "None";
+                UnityEngine.Debug.Log("Shapes Kinect: turned off Unity Remote's USB scanning, which freezes the editor with a Kinect plugged in.");
+            }
+
             var pluginPresent = AppDomain.CurrentDomain.GetAssemblies()
                 .Any(assembly => assembly.GetType("Windows.Kinect.KinectSensor", false) != null);
             var target = NamedBuildTarget.Standalone;
