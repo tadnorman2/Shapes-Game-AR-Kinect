@@ -37,6 +37,9 @@ namespace ShapesKinect.Kinect
         private readonly DepthFrame[] frames;
         private int nextFrame;
         private long frameNumber;
+        private bool wasAvailable;
+        private int dropouts;
+        private float availableSince;
 
         private KinectDepthSource(Windows.Kinect.KinectSensor sensor)
         {
@@ -74,6 +77,7 @@ namespace ShapesKinect.Kinect
 
         public void Tick()
         {
+            LogConnectionChanges();
             Watchdog.Mark("Kinect: working out the color camera");
             if (ColorCamera == null) TryFindColorCamera();
 
@@ -124,6 +128,31 @@ namespace ShapesKinect.Kinect
                 if (frame != null) frame.GetAndRefreshBodyData(bodies);
             }
             Watchdog.Mark("Kinect: done");
+        }
+
+        /// <summary>
+        /// Logs each time the Kinect drops off USB and comes back. A Kinect that keeps restarting
+        /// (its light going off and on) is a USB or power problem on the PC, not the game; this
+        /// makes it show in the log.
+        /// </summary>
+        private void LogConnectionChanges()
+        {
+            var available = sensor.IsAvailable;
+            if (available == wasAvailable) return;
+            wasAvailable = available;
+            if (available)
+            {
+                availableSince = Time.realtimeSinceStartup;
+                Debug.Log(dropouts == 0
+                    ? "[Shapes] Kinect connected."
+                    : $"[Shapes] Kinect connected again (it has dropped out {dropouts} times).");
+            }
+            else
+            {
+                dropouts++;
+                Debug.LogWarning($"[Shapes] Kinect disconnected after {Time.realtimeSinceStartup - availableSince:0.0} s " +
+                    $"(dropout {dropouts}). If this repeats, see \"If the Kinect keeps restarting\" in the README.");
+            }
         }
 
         /// <summary>

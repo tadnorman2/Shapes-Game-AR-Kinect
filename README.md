@@ -60,6 +60,29 @@ Without the plugin, or without a Kinect plugged in, the game runs on a **simulat
 instead, so it can be tried anywhere. Number keys **1-3** put a cup, a book and a box on it, and
 in hand control the mouse is the hand.
 
+### If the Kinect keeps restarting
+
+If the Kinect's light keeps going off and on (and the log shows `Kinect disconnected` warnings),
+the Kinect is dropping off USB. The game never closes the Kinect while it runs, so this is the PC's
+USB connection or power. Each drop also makes the Unity editor rescan USB devices, which can freeze
+it. Things to try, in order:
+
+1. Run **Kinect Configuration Verifier** (in *SDK Browser v2.0*, installed with the Kinect SDK). It
+   checks the USB controller and bandwidth. Leave it running for a minute to see whether the
+   sensor stays connected.
+2. Plug the Kinect adapter into a **USB 3.0 port on the back of the PC**, straight into the
+   motherboard: no hub, no front-panel port, no extension cable. Nothing else heavy (webcams,
+   other cameras, external drives) should share that controller.
+3. Stop Windows from powering USB down: **Control Panel → Power Options → Change plan settings →
+   Change advanced power settings → USB settings → USB selective suspend setting: Disabled**. In
+   **Device Manager**, open each *USB Root Hub* and *USB eXtensible Host Controller*, and on the
+   **Power Management** tab untick *Allow the computer to turn off this device to save power*.
+4. Check the adapter's power brick is in the wall and every plug along the cable is pushed fully
+   in.
+5. The Kinect v2 is fussy about USB 3.0 controllers: Intel and Renesas work; some AMD/Ryzen and
+   ASMedia ones don't. If none of the above helps, a PCIe USB 3.0 card with a Renesas (NEC) chip
+   is the usual fix.
+
 ### If the editor freezes a few seconds into Play
 
 With a Kinect streaming, the Unity editor can get stuck in its own USB device scanning: the game
