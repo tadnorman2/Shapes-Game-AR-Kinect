@@ -39,6 +39,9 @@ namespace ShapesKinect.Core
             return new Vector3(Vector3.Dot(d, Right), Vector3.Dot(d, Up), Vector3.Dot(d, Forward));
         }
 
+        /// <summary>Converts a point in table coordinates back to camera space.</summary>
+        public Vector3 ToCamera(Vector3 table) => Origin + Right * table.X + Up * table.Y + Forward * table.Z;
+
         /// <summary>Converts a camera-space direction to table coordinates.</summary>
         public Vector3 DirectionToTable(Vector3 camera) =>
             new Vector3(Vector3.Dot(camera, Right), Vector3.Dot(camera, Up), Vector3.Dot(camera, Forward));

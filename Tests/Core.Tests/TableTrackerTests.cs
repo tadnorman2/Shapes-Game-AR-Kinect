@@ -113,6 +113,17 @@ public class TableTrackerTests
     }
 
     [Fact]
+    public void PointsConvertBackAndForth()
+    {
+        var room = new SimulatedTable();
+        var tracker = Calibrated(room);
+        var roomPoint = new Vector3(0.1f, 0.2f, 0.7f);
+        var table = OnTable(tracker, room, roomPoint.X, roomPoint.Y, roomPoint.Z);
+        var back = room.CameraToRoom(tracker.Surface.Frame.ToCamera(table));
+        Assert.True(Vector3.Distance(roomPoint, back) < 1e-4f);
+    }
+
+    [Fact]
     public void TheTableEdgeIsOneClosedLoop()
     {
         var room = new SimulatedTable();

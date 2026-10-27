@@ -22,6 +22,10 @@ namespace ShapesKinect.Core
     /// <summary>
     /// Finds the table in a depth image: the biggest flat surface that faces up, by RANSAC, then
     /// refined by least squares over the points on it.
+    ///
+    /// Each plane's normal is taken on the side facing the camera. A table seen from above then
+    /// points up, while a wall seen from the front points down and back toward the camera, even
+    /// when the camera is tilted so that both are at the same angle to its own up direction.
     /// </summary>
     public static class PlaneFit
     {
@@ -29,11 +33,11 @@ namespace ShapesKinect.Core
         public const float InlierDistance = 0.012f;
 
         /// <summary>
-        /// The biggest plane among <paramref name="points"/> whose normal is within
-        /// <paramref name="maxTiltDegrees"/> of camera-space <paramref name="up"/>, with its normal
-        /// pointing toward the camera, or null if there's no such plane.
+        /// The biggest plane among <paramref name="points"/> whose camera-facing normal is within
+        /// <paramref name="maxTiltDegrees"/> of camera-space <paramref name="up"/>, or null if
+        /// there's no such plane.
         /// </summary>
-        public static Plane? FindUpFacing(IReadOnlyList<Vector3> points, Vector3 up, float maxTiltDegrees = 60f,
+        public static Plane? FindUpFacing(IReadOnlyList<Vector3> points, Vector3 up, float maxTiltDegrees = 85f,
             int iterations = 300, Random random = null)
         {
             random = random ?? new Random(1);
@@ -48,8 +52,7 @@ namespace ShapesKinect.Core
                 var c = points[random.Next(points.Count)];
                 var normal = Vector3.Cross(b - a, c - a);
                 if (normal.LengthSquared() < 1e-8f) continue;
-                normal = Vector3.Normalize(normal);
-                if (Vector3.Dot(normal, up) < 0f) normal = -normal;
+                normal = TowardCamera(Vector3.Normalize(normal), a);
                 if (Vector3.Dot(normal, up) < minUp) continue;
                 var plane = new Plane(normal, Vector3.Dot(normal, a));
                 var count = CountInliers(points, plane, bestCount);
@@ -60,7 +63,7 @@ namespace ShapesKinect.Core
                 }
             }
             if (best == null) return null;
-            return Refine(points, best.Value, up);
+            return Refine(points, best.Value);
         }
 
         /// <summary>
@@ -95,7 +98,8 @@ namespace ShapesKinect.Core
             foreach (var f in found)
             {
                 if (f.count * 4 < biggest) continue;
-                // Higher means further along "up" from the camera's point of view: a larger distance.
+                // With normals facing the camera, Distance is minus how far below the camera the
+                // plane is, so the higher plane has the larger Distance.
                 if (best == null || f.plane.Distance > best.Value.Distance) best = f.plane;
             }
             return best;
@@ -114,7 +118,7 @@ namespace ShapesKinect.Core
         }
 
         /// <summary>Least-squares plane through the points near <paramref name="rough"/>.</summary>
-        public static Plane Refine(IReadOnlyList<Vector3> points, Plane rough, Vector3 up)
+        public static Plane Refine(IReadOnlyList<Vector3> points, Plane rough)
         {
             var inliers = new List<Vector3>();
             foreach (var p in points)
@@ -133,10 +137,16 @@ namespace ShapesKinect.Core
                 xx += d.X * d.X; xy += d.X * d.Y; xz += d.X * d.Z;
                 yy += d.Y * d.Y; yz += d.Y * d.Z; zz += d.Z * d.Z;
             }
-            var normal = SmallestEigenvector(new[,] { { xx, xy, xz }, { xy, yy, yz }, { xz, yz, zz } });
-            if (Vector3.Dot(normal, up) < 0f) normal = -normal;
+            var normal = TowardCamera(SmallestEigenvector(new[,] { { xx, xy, xz }, { xy, yy, yz }, { xz, yz, zz } }), mean);
             return new Plane(normal, Vector3.Dot(normal, mean));
         }
+
+        /// <summary>
+        /// Flips <paramref name="normal"/> of the plane through <paramref name="onPlane"/>, if needed,
+        /// so it points to the camera's side. The camera is at the origin of camera space.
+        /// </summary>
+        private static Vector3 TowardCamera(Vector3 normal, Vector3 onPlane) =>
+            Vector3.Dot(normal, onPlane) > 0f ? -normal : normal;
 
         /// <summary>The eigenvector of a symmetric 3x3 matrix with the smallest eigenvalue, by Jacobi rotations.</summary>
         internal static Vector3 SmallestEigenvector(double[,] matrix)

@@ -74,6 +74,10 @@ namespace ShapesKinect.Core
             return new Vector3(-Vector3.Dot(d, SensorRight), Vector3.Dot(d, SensorUp), Vector3.Dot(d, SensorForward));
         }
 
+        /// <summary>Where a camera-space point is in the room.</summary>
+        public Vector3 CameraToRoom(Vector3 camera) =>
+            SensorPosition - SensorRight * camera.X + SensorUp * camera.Y + SensorForward * camera.Z;
+
         /// <summary>Renders one depth image of <paramref name="width"/> by <paramref name="height"/> pixels.</summary>
         public DepthFrame Render(int width = 256, int height = 212, Random random = null)
         {
