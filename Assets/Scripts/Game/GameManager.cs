@@ -314,9 +314,14 @@ namespace ShapesKinect.Game
                 Say("Waiting for the first picture from the Kinect.");
                 return;
             }
-            if (!tracker.Calibrate(frame))
+            var report = new List<string>();
+            var found = tracker.Calibrate(frame, report);
+            Debug.Log($"[Shapes] Looking for the table: {string.Join("; ", report)}.");
+            var saved = SaveCapture(frame);
+            if (!found)
             {
-                Say("Couldn't find a table. Make sure most of it is in view, it's clear, and the Kinect is at least 50 cm from it.");
+                Say("Couldn't find a table. Make sure most of it is in view, it's clear, and the Kinect is at least 50 cm from it." +
+                    (saved != null ? $" What the Kinect saw is saved in {saved}." : ""));
                 return;
             }
             edgeLines.Begin();
@@ -326,6 +331,36 @@ namespace ShapesKinect.Game
             state = State.Ready;
             Debug.Log($"[Shapes] Found the table: {tracker.Surface.Area:0.00} m2, {tracker.Surface.Frame}.");
             Say($"Found the table: {tracker.Surface.Area:0.00} square meters.");
+        }
+
+        /// <summary>
+        /// Saves the depth picture the table was looked for in, and the color picture, to the
+        /// Captures folder, keeping the last few. They show what went wrong when the table isn't
+        /// found properly. Returns the folder, or null if saving failed.
+        /// </summary>
+        private string SaveCapture(DepthFrame frame)
+        {
+            try
+            {
+                var folder = System.IO.Path.Combine(Application.persistentDataPath, "Captures");
+                System.IO.Directory.CreateDirectory(folder);
+                var name = System.IO.Path.Combine(folder, "table-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                using (var file = System.IO.File.Create(name + ".depth")) DepthCapture.Save(frame, file);
+                if (source.ColorTexture != null) System.IO.File.WriteAllBytes(name + ".jpg", source.ColorTexture.EncodeToJPG(85));
+                var old = System.IO.Directory.GetFiles(folder, "table-*.depth").OrderByDescending(f => f).Skip(10);
+                foreach (var depthFile in old)
+                {
+                    System.IO.File.Delete(depthFile);
+                    System.IO.File.Delete(System.IO.Path.ChangeExtension(depthFile, ".jpg"));
+                }
+                Debug.Log($"[Shapes] Saved what the Kinect saw to {name}.depth.");
+                return folder;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Shapes] Couldn't save what the Kinect saw: {e.Message}");
+                return null;
+            }
         }
 
         /// <summary>

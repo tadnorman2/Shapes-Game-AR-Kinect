@@ -93,6 +93,9 @@ namespace ShapesKinect.Core
             var width = frame.Width;
             var height = frame.Height;
             frame.Number = ++frameNumber;
+            // Like the Kinect's own reckoning of up, from its tilt sensor.
+            var roomUp = new Vector3(0f, 1f, 0f);
+            frame.UpHint = new Vector3(-Vector3.Dot(roomUp, SensorRight), Vector3.Dot(roomUp, SensorUp), Vector3.Dot(roomUp, SensorForward));
             var focal = FocalAt512 * width / 512f;
             float cx = width / 2f, cy = height / 2f;
             var right = SensorRight;

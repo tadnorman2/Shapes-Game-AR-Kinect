@@ -100,13 +100,25 @@ Device: None**), which scans USB for phones.
 - At least 50 cm from the nearest part of the table (the Kinect can't see closer), and ideally
   within 2 m of the far edge.
 - The game screen shows the Kinect's view live before you press Space, which helps aim it.
+- Anywhere from looking almost straight across the table to looking straight down at it works.
+  The table is taken to be the highest level surface in view that's at least 30 x 30 cm, so
+  keep higher things (shelves, a bed, a chair seat) out of the picture or below the table.
+
+Each time you press Space to find the table, the game saves what the Kinect saw (a `.depth` file
+and a `.jpg` photo) to a `Captures` folder, keeping the last ten, and writes what it found to the
+log. On Windows the folder is
+`%USERPROFILE%\AppData\LocalLow\DefaultCompany\<project folder name>\Captures`; the game
+shows it on screen when it can't find the table. Those files are what's needed to see why the
+table wasn't found.
 
 ## How it's built
 
 - **`Assets/Scripts/Core`**: everything that isn't drawing, in plain C# with no Unity dependency:
-  - `TableSurface` and `PlaneFit` find the table: RANSAC for flat surfaces whose
-    camera-facing side points up (so walls are skipped), the highest sizable one (so the floor
-    is skipped), then the biggest connected piece of it on a 2 cm grid.
+  - `TableFinder` and `TableSurface` find the table: they work out which way is up from the
+    direction most flat patches in the picture face (helped by the Kinect's tilt sensor), sort
+    those patches by height, and take the highest level surface big enough to play on (so the
+    floor is skipped, and walls never count), then the biggest connected piece of it on a 2 cm
+    grid.
   - `ObstacleMap` keeps the live map of things on the table; `TableTracker` ties it together.
   - `GameRound` holds the rules, ported from the Android prototype; `HandSteering` does hand
     control.

@@ -17,6 +17,12 @@ namespace ShapesKinect.Core
         /// <summary>Goes up with each new image, so readers can tell when one arrives.</summary>
         public long Number { get; set; }
 
+        /// <summary>
+        /// Which way is up in camera space, as the Kinect itself reckons from its tilt sensor and
+        /// the floor, if it says; a hint for finding the table.
+        /// </summary>
+        public Vector3? UpHint { get; set; }
+
         public DepthFrame(int width, int height)
         {
             Width = width;

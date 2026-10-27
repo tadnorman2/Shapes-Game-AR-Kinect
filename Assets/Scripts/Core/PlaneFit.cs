@@ -19,134 +19,26 @@ namespace ShapesKinect.Core
         public float SignedDistance(Vector3 point) => Vector3.Dot(Normal, point) - Distance;
     }
 
-    /// <summary>
-    /// Finds the table in a depth image: the biggest flat surface that faces up, by RANSAC, then
-    /// refined by least squares over the points on it.
-    ///
-    /// Each plane's normal is taken on the side facing the camera. A table seen from above then
-    /// points up, while a wall seen from the front points down and back toward the camera, even
-    /// when the camera is tilted so that both are at the same angle to its own up direction.
-    /// </summary>
+    /// <summary>Fitting planes to points.</summary>
     public static class PlaneFit
     {
-        /// <summary>Points this close to a plane count as on it, in meters.</summary>
-        public const float InlierDistance = 0.012f;
-
-        /// <summary>
-        /// The biggest plane among <paramref name="points"/> whose camera-facing normal is within
-        /// <paramref name="maxTiltDegrees"/> of camera-space <paramref name="up"/>, or null if
-        /// there's no such plane.
-        /// </summary>
-        public static Plane? FindUpFacing(IReadOnlyList<Vector3> points, Vector3 up, float maxTiltDegrees = 85f,
-            int iterations = 300, Random random = null)
+        /// <summary>The least-squares plane through <paramref name="points"/> (at least three); its normal may face either way.</summary>
+        public static Plane LeastSquares(IReadOnlyList<Vector3> points)
         {
-            random = random ?? new Random(1);
-            if (points.Count < 50) return null;
-            var minUp = (float)Math.Cos(maxTiltDegrees * Math.PI / 180.0);
-            Plane? best = null;
-            var bestCount = 0;
-            for (var i = 0; i < iterations; i++)
-            {
-                var a = points[random.Next(points.Count)];
-                var b = points[random.Next(points.Count)];
-                var c = points[random.Next(points.Count)];
-                var normal = Vector3.Cross(b - a, c - a);
-                if (normal.LengthSquared() < 1e-8f) continue;
-                normal = TowardCamera(Vector3.Normalize(normal), a);
-                if (Vector3.Dot(normal, up) < minUp) continue;
-                var plane = new Plane(normal, Vector3.Dot(normal, a));
-                var count = CountInliers(points, plane, bestCount);
-                if (count > bestCount)
-                {
-                    bestCount = count;
-                    best = plane;
-                }
-            }
-            if (best == null) return null;
-            return Refine(points, best.Value);
-        }
-
-        /// <summary>
-        /// The table among <paramref name="points"/>: of the few biggest up-facing flat surfaces,
-        /// the highest one that's at least a quarter the size of the biggest. From an angled view the
-        /// floor past the table can fill more of the picture than the table itself, but the table
-        /// is always above it.
-        /// </summary>
-        public static Plane? FindTable(IReadOnlyList<Vector3> points, Vector3 up, Random random = null)
-        {
-            random = random ?? new Random(1);
-            var remaining = new List<Vector3>(points);
-            var found = new List<(Plane plane, int count)>();
-            for (var i = 0; i < 3; i++)
-            {
-                var plane = FindUpFacing(remaining, up, random: random);
-                if (plane == null) break;
-                var rest = new List<Vector3>(remaining.Count);
-                var count = 0;
-                foreach (var p in remaining)
-                {
-                    if (Math.Abs(plane.Value.SignedDistance(p)) < InlierDistance) count++;
-                    else rest.Add(p);
-                }
-                found.Add((plane.Value, count));
-                remaining = rest;
-            }
-            if (found.Count == 0) return null;
-            var biggest = 0;
-            foreach (var f in found) biggest = Math.Max(biggest, f.count);
-            Plane? best = null;
-            foreach (var f in found)
-            {
-                if (f.count * 4 < biggest) continue;
-                // With normals facing the camera, Distance is minus how far below the camera the
-                // plane is, so the higher plane has the larger Distance.
-                if (best == null || f.plane.Distance > best.Value.Distance) best = f.plane;
-            }
-            return best;
-        }
-
-        /// <summary>Counts points near <paramref name="plane"/>; stops early once it can't beat <paramref name="toBeat"/>.</summary>
-        private static int CountInliers(IReadOnlyList<Vector3> points, Plane plane, int toBeat)
-        {
-            var count = 0;
-            for (var i = 0; i < points.Count; i++)
-            {
-                if (Math.Abs(plane.SignedDistance(points[i])) < InlierDistance) count++;
-                else if (count + (points.Count - i - 1) <= toBeat) return count;
-            }
-            return count;
-        }
-
-        /// <summary>Least-squares plane through the points near <paramref name="rough"/>.</summary>
-        public static Plane Refine(IReadOnlyList<Vector3> points, Plane rough)
-        {
-            var inliers = new List<Vector3>();
-            foreach (var p in points)
-            {
-                if (Math.Abs(rough.SignedDistance(p)) < InlierDistance) inliers.Add(p);
-            }
-            if (inliers.Count < 3) return rough;
             var mean = Vector3.Zero;
-            foreach (var p in inliers) mean += p;
-            mean /= inliers.Count;
+            foreach (var p in points) mean += p;
+            mean /= points.Count;
             // Covariance of the points; the plane's normal is its least-spread direction.
             double xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
-            foreach (var p in inliers)
+            foreach (var p in points)
             {
                 var d = p - mean;
                 xx += d.X * d.X; xy += d.X * d.Y; xz += d.X * d.Z;
                 yy += d.Y * d.Y; yz += d.Y * d.Z; zz += d.Z * d.Z;
             }
-            var normal = TowardCamera(SmallestEigenvector(new[,] { { xx, xy, xz }, { xy, yy, yz }, { xz, yz, zz } }), mean);
+            var normal = SmallestEigenvector(new[,] { { xx, xy, xz }, { xy, yy, yz }, { xz, yz, zz } });
             return new Plane(normal, Vector3.Dot(normal, mean));
         }
-
-        /// <summary>
-        /// Flips <paramref name="normal"/> of the plane through <paramref name="onPlane"/>, if needed,
-        /// so it points to the camera's side. The camera is at the origin of camera space.
-        /// </summary>
-        private static Vector3 TowardCamera(Vector3 normal, Vector3 onPlane) =>
-            Vector3.Dot(normal, onPlane) > 0f ? -normal : normal;
 
         /// <summary>The eigenvector of a symmetric 3x3 matrix with the smallest eigenvalue.</summary>
         internal static Vector3 SmallestEigenvector(double[,] matrix)

@@ -40,6 +40,7 @@ namespace ShapesKinect.Kinect
         private bool wasAvailable;
         private int dropouts;
         private float availableSince;
+        private NVector3? upHint;
 
         private KinectDepthSource(Windows.Kinect.KinectSensor sensor)
         {
@@ -110,6 +111,7 @@ namespace ShapesKinect.Kinect
                     var result = frames[nextFrame];
                     nextFrame = 1 - nextFrame;
                     result.Number = ++frameNumber;
+                    result.UpHint = upHint;
                     for (var i = 0; i < cameraPoints.Length; i++)
                     {
                         var p = cameraPoints[i];
@@ -125,7 +127,15 @@ namespace ShapesKinect.Kinect
             Watchdog.Mark("Kinect: reading bodies");
             using (var frame = bodyReader.AcquireLatestFrame())
             {
-                if (frame != null) frame.GetAndRefreshBodyData(bodies);
+                if (frame != null)
+                {
+                    frame.GetAndRefreshBodyData(bodies);
+                    // The Kinect's idea of the floor, in camera space; its normal is up, from the
+                    // tilt sensor even when no floor is in view. All zeros when it has no idea.
+                    var floor = frame.FloorClipPlane;
+                    var up = new NVector3(floor.X, floor.Y, floor.Z);
+                    upHint = System.Math.Abs(up.Length() - 1f) < 0.1f ? up : (NVector3?)null;
+                }
             }
             Watchdog.Mark("Kinect: done");
         }

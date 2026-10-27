@@ -9,6 +9,14 @@ namespace Windows.Kinect
     public enum JointType { HandLeft = 7, HandRight = 11 }
     public enum TrackingState { NotTracked, Inferred, Tracked }
 
+    public struct Vector4
+    {
+        public float X;
+        public float Y;
+        public float Z;
+        public float W;
+    }
+
     public struct CameraSpacePoint { public float X; public float Y; public float Z; }
     public struct ColorSpacePoint { public float X; public float Y; }
 
@@ -47,6 +55,7 @@ namespace Windows.Kinect
 
     public sealed class BodyFrame : IDisposable
     {
+        public Vector4 FloorClipPlane => default;
         public void GetAndRefreshBodyData(Body[] bodies) { }
         public void Dispose() { }
     }

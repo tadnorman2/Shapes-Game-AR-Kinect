@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Numerics;
 
 namespace ShapesKinect.Core
@@ -15,11 +16,12 @@ namespace ShapesKinect.Core
 
         /// <summary>
         /// Finds the table in <paramref name="frame"/>, which should show it clear. Returns whether
-        /// it was found; if not, any previous calibration is kept.
+        /// it was found; if not, any previous calibration is kept. <paramref name="report"/>, if
+        /// given, gets what was seen, for the log.
         /// </summary>
-        public bool Calibrate(DepthFrame frame)
+        public bool Calibrate(DepthFrame frame, List<string> report = null)
         {
-            var surface = TableSurface.Find(frame);
+            var surface = TableSurface.Find(frame, report);
             if (surface == null) return false;
             Surface = surface;
             Obstacles = new ObstacleMap(surface.Grid);
