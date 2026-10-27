@@ -3,18 +3,21 @@
   <!--
     Compiles the game's Unity scripts against Unity's API (reference assemblies from NuGet), as
     C# 9 like Unity, so mistakes show up in CI without Unity installed. The Kinect plugin isn't
-    available here, so KinectDepthSource (which needs KINECT_V2) and the editor-only script aren't
-    compiled; everything else is, with Unity's old input system.
+    available here, so KinectDepthSource compiles against KinectPluginStub.cs, a stand-in for the
+    plugin's API. The editor-only script isn't compiled; everything else is, with Unity's old
+    input system.
   -->
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>9.0</LangVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <IsPackable>false</IsPackable>
+    <DefineConstants>$(DefineConstants);KINECT_V2</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="../../Assets/Scripts/**/*.cs" />
+    <Compile Include="KinectPluginStub.cs" />
   </ItemGroup>
 
   <ItemGroup>

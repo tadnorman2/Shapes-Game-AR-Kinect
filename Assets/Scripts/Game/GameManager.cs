@@ -28,6 +28,13 @@ namespace ShapesKinect.Game
         }
 
         private IDepthSource source;
+        /// <summary>
+        /// The Kinect, once opened. It stays open until the game stops, even while the simulator is
+        /// in use, since closing and reopening the Kinect can hang Unity.
+        /// </summary>
+        private IDepthSource kinect;
+        private SimulatedDepthSource simulator;
+        private bool showColor = true;
         private string sourceNote;
         private float waitingForKinectSince = -1f;
         private long lastFrameNumber = -1;
@@ -60,8 +67,11 @@ namespace ShapesKinect.Game
         /// <summary>Where the simulated hand is held, in table coordinates: 30 cm above the table.</summary>
         private const float SimulatedHandHeight = 0.3f;
 
-        /// <summary>How long to wait for the Kinect's first image before falling back to the simulator.</summary>
-        private const float KinectTimeout = 5f;
+        /// <summary>
+        /// How long to wait for the Kinect's first image before falling back to the simulator. The
+        /// Kinect can take several seconds to start streaming after it's opened.
+        /// </summary>
+        private const float KinectTimeout = 15f;
 
         private void Start()
         {
@@ -105,11 +115,11 @@ namespace ShapesKinect.Game
         private void UseKinect()
         {
 #if KINECT_V2
-            var kinect = KinectDepthSource.TryOpen();
+            if (kinect == null) kinect = KinectDepthSource.TryOpen();
             if (kinect != null)
             {
                 SetSource(kinect, null);
-                waitingForKinectSince = Time.unscaledTime;
+                if (kinect.Latest == null) waitingForKinectSince = Time.unscaledTime;
                 return;
             }
             UseSimulator("The Kinect runtime isn't installed, so a simulated table stands in.");
@@ -120,12 +130,12 @@ namespace ShapesKinect.Game
 
         private void UseSimulator(string why)
         {
-            SetSource(new SimulatedDepthSource(), why);
+            if (simulator == null) simulator = new SimulatedDepthSource();
+            SetSource(simulator, why);
         }
 
         private void SetSource(IDepthSource newSource, string note)
         {
-            source?.Dispose();
             source = newSource;
             sourceNote = note;
             waitingForKinectSince = -1f;
@@ -142,7 +152,8 @@ namespace ShapesKinect.Game
 
         private void OnDestroy()
         {
-            source?.Dispose();
+            kinect?.Dispose();
+            simulator?.Dispose();
         }
 
         private void Update()
@@ -151,7 +162,7 @@ namespace ShapesKinect.Game
             if (waitingForKinectSince >= 0f && source.Latest == null &&
                 Time.unscaledTime - waitingForKinectSince > KinectTimeout)
             {
-                UseSimulator("No Kinect picture arrived. Check it's plugged in and powered, then press K to try again.");
+                UseSimulator("No picture arrived from the Kinect. Check it's plugged in and powered (its light is on), then press K to try again.");
             }
             if (Controls.SwitchSource)
             {
@@ -168,7 +179,7 @@ namespace ShapesKinect.Game
                 lastFrameNumber = frame.Number;
                 framesThisSecond++;
                 if (tracker.IsCalibrated) tracker.Update(frame, frame.Width > 300 ? 2 : 1);
-                tableView.Show(frame, tracker);
+                tableView.Show(frame, tracker, showColor ? source.ColorTexture : null);
             }
             rateTimer += Time.unscaledDeltaTime;
             if (rateTimer >= 1f)
@@ -211,6 +222,12 @@ namespace ShapesKinect.Game
                 var key = Controls.NumberKey;
                 if (key >= 0 && key < SimulatedDepthSource.Props.Length) simulated.ToggleProp(key);
                 simulated.SetHand(steering == Steering.Hand ? PointerHand() : null);
+            }
+
+            if (Controls.SwitchView)
+            {
+                showColor = !showColor;
+                Say(showColor ? "Color view." : "Depth view: table grey, objects orange, hands purple.");
             }
 
             if (Controls.SwitchControl)
@@ -465,7 +482,8 @@ namespace ShapesKinect.Game
                 GUI.Label(new Rect(width * 0.16f, height * 0.72f, width * 0.68f, unit * 2.6f), message, medium);
             }
 
-            var status = $"{source.Name} · {depthRate:0} depth frames/s · {(steering == Steering.Stick ? "Stick" : "Hand")} control (Tab)";
+            var status = $"{source.Name} · {depthRate:0} depth frames/s · {1000f * Time.smoothDeltaTime:0} ms per frame · " +
+                $"{(steering == Steering.Stick ? "Stick" : "Hand")} control (Tab) · {(showColor ? "Color" : "Depth")} view (C)";
             if (state != State.Playing) status += " · R finds the table again · K switches Kinect/simulator";
             if (source is SimulatedDepthSource simulated)
             {

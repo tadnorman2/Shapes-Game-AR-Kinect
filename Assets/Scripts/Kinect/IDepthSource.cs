@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using ShapesKinect.Core;
+using UnityEngine;
 using NVector3 = System.Numerics.Vector3;
 
 namespace ShapesKinect.Kinect
@@ -11,8 +12,14 @@ namespace ShapesKinect.Kinect
         /// <summary>A short name to show the player, like "Kinect v2".</summary>
         string Name { get; }
 
-        /// <summary>The newest depth image, or null before the first one arrives.</summary>
+        /// <summary>
+        /// The newest depth image, or null before the first one arrives. Sources reuse a couple of
+        /// frames in turn to save memory, so it's only good until the next <see cref="Tick"/>.
+        /// </summary>
         DepthFrame Latest { get; }
+
+        /// <summary>The color camera's newest image, or null without one.</summary>
+        Texture2D ColorTexture { get; }
 
         /// <summary>Call once per Unity frame to pick up new images.</summary>
         void Tick();

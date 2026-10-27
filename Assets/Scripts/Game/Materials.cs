@@ -15,6 +15,13 @@ namespace ShapesKinect.Game
             return material;
         }
 
+        /// <summary>Unlit, showing a texture as it is: for the color camera's picture.</summary>
+        public static Material UnlitTexture()
+        {
+            var shader = Shader.Find("Unlit/Texture") ?? Shader.Find("Universal Render Pipeline/Unlit");
+            return new Material(shader);
+        }
+
         /// <summary>Unlit, see-through, colored per vertex, drawn from both sides: for the depth view, lines and shadows.</summary>
         public static Material VertexColor()
         {

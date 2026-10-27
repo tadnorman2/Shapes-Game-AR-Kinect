@@ -17,6 +17,12 @@ namespace ShapesKinect.Core
         /// <summary>Goes up with each new image, so readers can tell when one arrives.</summary>
         public long Number { get; set; }
 
+        /// <summary>
+        /// For each pixel, where it appears in the color camera's image, from 0 to 1 across and
+        /// down, or NaN where it doesn't; null when there's no color camera.
+        /// </summary>
+        public Vector2[] ColorCoordinates { get; set; }
+
         public DepthFrame(int width, int height)
         {
             Width = width;

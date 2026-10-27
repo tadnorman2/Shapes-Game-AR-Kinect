@@ -15,6 +15,7 @@ namespace ShapesKinect.Kinect
     {
         public string Name => "Simulated Kinect";
         public DepthFrame Latest { get; private set; }
+        public Texture2D ColorTexture => null;
         public SimulatedTable Room { get; } = new SimulatedTable();
 
         /// <summary>Objects the number keys toggle, in the simulated room's coordinates.</summary>
@@ -27,6 +28,8 @@ namespace ShapesKinect.Kinect
 
         private readonly bool[] propOn = new bool[Props.Length];
         private readonly System.Random random = new System.Random();
+        private readonly DepthFrame[] frames = { new DepthFrame(256, 212), new DepthFrame(256, 212) };
+        private int nextFrame;
         private float nextRender;
 
         /// <summary>Renders at about the Kinect's rate, at half its resolution to keep it quick.</summary>
@@ -36,7 +39,10 @@ namespace ShapesKinect.Kinect
         {
             if (Time.unscaledTime < nextRender) return;
             nextRender = Time.unscaledTime + FrameInterval;
-            Latest = Room.Render(256, 212, random);
+            var frame = frames[nextFrame];
+            nextFrame = 1 - nextFrame;
+            Room.RenderInto(frame, random);
+            Latest = frame;
         }
 
         public bool IsPropOn(int index) => propOn[index];

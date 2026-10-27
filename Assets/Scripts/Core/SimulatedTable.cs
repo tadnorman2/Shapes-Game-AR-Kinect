@@ -81,8 +81,18 @@ namespace ShapesKinect.Core
         /// <summary>Renders one depth image of <paramref name="width"/> by <paramref name="height"/> pixels.</summary>
         public DepthFrame Render(int width = 256, int height = 212, Random random = null)
         {
+            var frame = new DepthFrame(width, height);
+            RenderInto(frame, random);
+            return frame;
+        }
+
+        /// <summary>Renders a new depth image into <paramref name="frame"/>, reusing it to save memory.</summary>
+        public void RenderInto(DepthFrame frame, Random random = null)
+        {
             random = random ?? new Random();
-            var frame = new DepthFrame(width, height) { Number = ++frameNumber };
+            var width = frame.Width;
+            var height = frame.Height;
+            frame.Number = ++frameNumber;
             var focal = FocalAt512 * width / 512f;
             float cx = width / 2f, cy = height / 2f;
             var right = SensorRight;
@@ -107,7 +117,6 @@ namespace ShapesKinect.Core
                     frame.Points[py * width + px] = RoomToCamera(room);
                 }
             }
-            return frame;
         }
 
         /// <summary>Distance, in depth units along <paramref name="dir"/>, to the nearest thing it hits.</summary>

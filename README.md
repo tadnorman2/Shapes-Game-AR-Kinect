@@ -25,7 +25,9 @@ directly, so this version can.
    hand and arm above it don't get in the way.
 
 **R** (gamepad **Y**) finds the table again, e.g. after moving the Kinect. **K** switches between
-the Kinect and the simulated table.
+the Kinect and the simulated table. **C** switches between the color view (the Kinect's color
+camera painted onto what its depth camera sees) and the depth view (table grey, objects orange,
+hands purple), which is handy for seeing what the game counts as an object.
 
 ## Setting up
 
