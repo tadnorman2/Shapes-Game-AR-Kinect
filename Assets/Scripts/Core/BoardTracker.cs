@@ -23,8 +23,8 @@ namespace ShapesKinect.Core
         /// <summary>Where the board was when it began learning how the surface looks.</summary>
         private TableFrame learnedAt;
 
-        /// <summary>Pictures averaged to learn how the surface looks: a third of a second.</summary>
-        private const int LearnFrames = 10;
+        /// <summary>Pictures to learn how the surface looks from: half a second.</summary>
+        private const int LearnFrames = 15;
         private const float MaxDistance = 4f;
         private const float MaxBelow = 0.05f;
         /// <summary>A board moved more than this far, or turned more than this many degrees, looks afresh.</summary>
@@ -50,21 +50,48 @@ namespace ShapesKinect.Core
                 {
                     if (float.IsNaN(baseline[cell]) || t.Y > baseline[cell]) baseline[cell] = t.Y;
                 });
-                if (++learned == LearnFrames)
-                {
-                    for (var i = 0; i < baseline.Length; i++) if (float.IsNaN(baseline[i])) baseline[i] = 0f;
-                }
+                if (++learned == LearnFrames) SpreadBaseline();
                 return;
             }
             Obstacles.BeginFrame();
             ForEachOnBoard(depth, step, (cell, t, z) =>
             {
+                // A cell that had no readings while learning: learn it now, rather than guess.
+                if (float.IsNaN(baseline[cell])) baseline[cell] = t.Y;
                 var above = t.Y - baseline[cell];
                 // Allow for the Kinect's depth getting rougher with distance.
                 if (above > 0f) above = Math.Max(0f, above - Noise(z) * 2f);
                 Obstacles.Observe(t.X, t.Z, above);
             });
             Obstacles.EndFrame();
+        }
+
+        /// <summary>
+        /// Makes each cell's top the highest of it and its neighbors. Readings shift a little from
+        /// picture to picture, and one landing in the next cell over mustn't look like a bump
+        /// where the surface slopes, as a table seen at a shallow angle seems to.
+        /// </summary>
+        private void SpreadBaseline()
+        {
+            var n = Obstacles.Grid.CellsPerSide;
+            var spread = new float[baseline.Length];
+            for (var i = 0; i < baseline.Length; i++)
+            {
+                int row = i / n, column = i % n;
+                var top = float.NaN;
+                for (var dr = -1; dr <= 1; dr++)
+                {
+                    for (var dc = -1; dc <= 1; dc++)
+                    {
+                        int r = row + dr, c = column + dc;
+                        if (r < 0 || r >= n || c < 0 || c >= n) continue;
+                        var h = baseline[r * n + c];
+                        if (!float.IsNaN(h) && (float.IsNaN(top) || h > top)) top = h;
+                    }
+                }
+                spread[i] = top;
+            }
+            Array.Copy(spread, baseline, baseline.Length);
         }
 
         /// <summary>Where the ball can go: the board, minus its walls and the things on it.</summary>

@@ -229,7 +229,7 @@ public class BoardTests
         var placement = CardLocator.Locate(new CardDetector().Detect(image)[0], camera, depth);
         var board = new Board(ArenaLayout.ForCard(card), placement.Frame);
         var tracker = new BoardTracker(board);
-        Watch(tracker, room, 12);
+        Watch(tracker, room, 16);
         return (room, board, tracker);
     }
 
@@ -283,12 +283,12 @@ public class BoardTests
         var (room, board, tracker) = Play();
         Assert.True(tracker.IsReady);
         room.Objects.Add(Box.OnTable(0.15f, 0.6f, 0.08f, 0.08f, 0.1f));
-        Watch(tracker, room, 4);
+        Watch(tracker, room, 5);
         var cup = OnBoard(board, room, 0.15f, 0.6f);
         Assert.True(tracker.Obstacles.IsBlocked(cup.X, cup.Z));
         Assert.False(tracker.PlayArea().Contains(cup.X, cup.Z));
         room.Objects.Clear();
-        Watch(tracker, room, 4);
+        Watch(tracker, room, 5);
         Assert.False(tracker.Obstacles.IsBlocked(cup.X, cup.Z));
     }
 
@@ -297,7 +297,7 @@ public class BoardTests
     {
         var (room, board, tracker) = Play();
         room.Hand = new Vector3(0.15f, 0.25f, 0.65f);
-        Watch(tracker, room, 4);
+        Watch(tracker, room, 5);
         var underHand = OnBoard(board, room, 0.15f, 0.65f);
         Assert.False(tracker.Obstacles.IsBlocked(underHand.X, underHand.Z));
     }
@@ -307,7 +307,7 @@ public class BoardTests
     {
         var (room, board, tracker) = Play();
         room.Objects.Add(Box.OnTable(0.15f, 0.6f, 0.08f, 0.08f, 0.1f));
-        Watch(tracker, room, 4);
+        Watch(tracker, room, 5);
         var frame = board.Frame;
         board.MoveTo(new TableFrame(frame.Origin + frame.Right * 0.05f, frame.Up, frame.Forward));
         Watch(tracker, room, 2);
@@ -315,7 +315,7 @@ public class BoardTests
         var nothing = 0;
         for (var cell = 0; cell < tracker.Obstacles.Grid.CellCount; cell++) if (tracker.Obstacles.IsBlocked(cell)) nothing++;
         Assert.Equal(0, nothing);
-        Watch(tracker, room, 12);
+        Watch(tracker, room, 16);
         Assert.True(tracker.IsReady);
     }
 
@@ -364,5 +364,54 @@ public class BoardTests
         {
             Assert.True(frame.Points[i] == loaded.Points[i] || (!DepthFrame.IsValid(frame.Points[i]) && !DepthFrame.IsValid(loaded.Points[i])));
         }
+    }
+}
+
+public class ObstacleMapTests
+{
+    private static ObstacleMap Raise(params (float x, float z)[] spots)
+    {
+        var map = new ObstacleMap(new Grid(1f, 0.02f));
+        for (var frame = 0; frame < 5; frame++)
+        {
+            map.BeginFrame();
+            foreach (var (x, z) in spots)
+            {
+                map.Observe(x, z, 0.05f);
+                map.Observe(x, z, 0.05f);
+            }
+            map.EndFrame();
+        }
+        return map;
+    }
+
+    [Fact]
+    public void AStrayBumpIsNotAnObject()
+    {
+        var map = Raise((0.11f, 0.11f), (0.13f, 0.11f));
+        Assert.False(map.IsBlocked(0.11f, 0.11f));
+    }
+
+    [Fact]
+    public void ASmallThingIsAnObject()
+    {
+        // About 4 by 6 cm, like a small box.
+        var spots = new System.Collections.Generic.List<(float, float)>();
+        for (var x = 0; x < 2; x++) for (var z = 0; z < 3; z++) spots.Add((0.11f + x * 0.02f, 0.11f + z * 0.02f));
+        var map = Raise(spots.ToArray());
+        Assert.True(map.IsBlocked(0.11f, 0.11f));
+    }
+
+    [Fact]
+    public void ABumpForTwoFramesIsNotAnObject()
+    {
+        var map = new ObstacleMap(new Grid(1f, 0.02f));
+        for (var frame = 0; frame < 2; frame++)
+        {
+            map.BeginFrame();
+            for (var x = 0; x < 4; x++) for (var z = 0; z < 4; z++) { map.Observe(0.11f + x * 0.02f, 0.11f + z * 0.02f, 0.05f); map.Observe(0.11f + x * 0.02f, 0.11f + z * 0.02f, 0.05f); }
+            map.EndFrame();
+        }
+        Assert.False(map.IsBlocked(0.13f, 0.13f));
     }
 }

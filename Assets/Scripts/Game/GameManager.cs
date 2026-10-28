@@ -469,6 +469,18 @@ namespace ShapesKinect.Game
                 // Each side of the board as two points in camera space.
                 board.TraceEdge((x1, z1, x2, z2) =>
                     text.AppendLine(System.FormattableString.Invariant($"board edge {f.ToCamera(new NVector3(x1, 0f, z1))} {f.ToCamera(new NVector3(x2, 0f, z2))}")));
+                // Where it thinks real things are on the board, in its own coordinates, and the ball.
+                if (boardTracker != null && boardTracker.IsReady)
+                {
+                    var grid = boardTracker.Obstacles.Grid;
+                    var blocked = new List<string>();
+                    for (var cell = 0; cell < grid.CellCount; cell++)
+                    {
+                        if (boardTracker.Obstacles.IsBlocked(cell)) blocked.Add(System.FormattableString.Invariant($"({grid.CenterX(cell):0.00},{grid.CenterZ(cell):0.00})"));
+                    }
+                    text.AppendLine($"objects on the board ({blocked.Count} cells of {grid.CellSize * 100:0} cm): {string.Join(" ", blocked)}");
+                }
+                if (round != null) text.AppendLine(System.FormattableString.Invariant($"ball at ({round.PlayerX:0.000},{round.PlayerZ:0.000})"));
             }
             else
             {
