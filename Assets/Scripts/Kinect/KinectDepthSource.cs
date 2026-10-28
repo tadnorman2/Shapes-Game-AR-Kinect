@@ -224,6 +224,36 @@ namespace ShapesKinect.Kinect
             }
         }
 
+        /// <summary>The Kinect's joints for each of the game's.</summary>
+        private static readonly (BodyJoint joint, Windows.Kinect.JointType kinect)[] Joints =
+        {
+            (BodyJoint.Head, Windows.Kinect.JointType.Head),
+            (BodyJoint.SpineShoulder, Windows.Kinect.JointType.SpineShoulder),
+            (BodyJoint.SpineMid, Windows.Kinect.JointType.SpineMid),
+            (BodyJoint.SpineBase, Windows.Kinect.JointType.SpineBase),
+            (BodyJoint.HandLeft, Windows.Kinect.JointType.HandLeft),
+            (BodyJoint.HandRight, Windows.Kinect.JointType.HandRight),
+            (BodyJoint.FootLeft, Windows.Kinect.JointType.FootLeft),
+            (BodyJoint.FootRight, Windows.Kinect.JointType.FootRight),
+        };
+
+        public void GetBodies(List<Body> found)
+        {
+            found.Clear();
+            foreach (var body in bodies)
+            {
+                if (body == null || !body.IsTracked) continue;
+                var person = new Body();
+                foreach (var (joint, kinect) in Joints)
+                {
+                    var j = body.Joints[kinect];
+                    if (j.TrackingState == Windows.Kinect.TrackingState.NotTracked) continue;
+                    person.Set(joint, new NVector3(j.Position.X, j.Position.Y, j.Position.Z), j.TrackingState == Windows.Kinect.TrackingState.Tracked);
+                }
+                found.Add(person);
+            }
+        }
+
         public void Dispose()
         {
             depthReader?.Dispose();

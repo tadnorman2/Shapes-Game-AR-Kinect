@@ -32,6 +32,18 @@ namespace ShapesKinect.Game
         }
 
         /// <summary>
+        /// Draws the surface invisibly, only hiding what's behind it, so the game's shapes go
+        /// behind real people and things. Returns false if that can't be done.
+        /// </summary>
+        public bool UseAsMask()
+        {
+            var mask = Materials.DepthMask();
+            if (mask == null) return false;
+            GetComponent<MeshRenderer>().sharedMaterial = mask;
+            return true;
+        }
+
+        /// <summary>
         /// Rebuilds the surface from <paramref name="frame"/>, colored by what's on
         /// <paramref name="board"/> (if there is one) as <paramref name="obstacles"/> sees it,
         /// and shaded by distance elsewhere.

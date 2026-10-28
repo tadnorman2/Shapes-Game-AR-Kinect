@@ -6,7 +6,7 @@ using System.Collections.Generic;
 namespace Windows.Kinect
 {
     public enum ColorImageFormat { None, Rgba, Yuv, Bgra, Bayer, Yuy2 }
-    public enum JointType { HandLeft = 7, HandRight = 11 }
+    public enum JointType { SpineBase = 0, SpineMid = 1, Head = 3, HandLeft = 7, HandRight = 11, FootLeft = 15, FootRight = 19, SpineShoulder = 20 }
     public enum TrackingState { NotTracked, Inferred, Tracked }
 
     public struct Vector4

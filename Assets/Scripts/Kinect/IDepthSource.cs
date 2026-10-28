@@ -35,5 +35,8 @@ namespace ShapesKinect.Kinect
 
         /// <summary>Adds the camera-space position of each tracked hand to <paramref name="hands"/>.</summary>
         void GetHands(List<NVector3> hands);
+
+        /// <summary>Adds each person the Kinect tracks to <paramref name="bodies"/>, reusing the bodies already in it where it can.</summary>
+        void GetBodies(List<Body> bodies);
     }
 }

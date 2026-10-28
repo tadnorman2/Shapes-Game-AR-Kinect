@@ -22,6 +22,16 @@ namespace ShapesKinect.Game
             return new Material(shader);
         }
 
+        /// <summary>
+        /// Invisible, but hides whatever's drawn behind it: for the Kinect's view of the room, so
+        /// the game's shapes go behind real people and things. Null if the shader is missing.
+        /// </summary>
+        public static Material DepthMask()
+        {
+            var shader = Shader.Find("Shapes/Depth Mask");
+            return shader == null ? null : new Material(shader);
+        }
+
         /// <summary>Unlit, see-through, colored per vertex, drawn from both sides: for the depth view, lines and shadows.</summary>
         public static Material VertexColor()
         {

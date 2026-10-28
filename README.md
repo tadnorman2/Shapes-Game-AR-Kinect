@@ -1,16 +1,22 @@
 # Shapes Game AR (Kinect)
 
-A tabletop take on the Shapes game for PC, using a Kinect v2. Lay a printed Shapes card on the
-table, like the Nintendo 3DS's AR cards, and the game builds its arena around it; roll a ball around
-the arena to collect shapes. Move the card and the arena moves with it. Each card brings up a
-different arena, and anything real you put on the arena, like a cup, a book or a box, becomes an
-obstacle the ball has to go around, live.
+Two AR takes on the Shapes game for PC, using a Kinect v2. When the game starts, pick one from the
+main menu (click it, press **1** or **2**, or choose with the arrows/stick and press **Space**);
+**Escape** goes back to the menu from either.
+
+- **Card table**: lay a printed Shapes card on the table, like the Nintendo 3DS's AR cards, and
+  the game builds its arena around it; roll a ball around the arena to collect shapes. Move the
+  card and the arena moves with it. Each card brings up a different arena, and anything real you
+  put on the arena, like a cup, a book or a box, becomes an obstacle the ball has to go around,
+  live.
+- **Shape catcher**: stand back from the Kinect and shapes float in the air around you on the
+  screen; touch them with your hands and feet to catch them. No setup beyond standing in view.
 
 It grew out of [Shapes-Game-AR](https://github.com/tadnorman2/Shapes-Game-AR), an Android ARCore
 prototype. Phone depth couldn't find table edges or objects reliably; the Kinect measures depth
 directly, so this version can.
 
-## How a round plays
+## How a round of Card table plays
 
 1. Print the cards: [`Cards/ShapesCards.pdf`](Cards/ShapesCards.pdf), one per page. Print at
    **actual size** (100%, not "fit to page") on matte paper or card.
@@ -38,6 +44,26 @@ normal video, with the ball, shapes and outlines drawn on top, lined up with the
 game works out exactly where the color camera is and how its lens sees from the Kinect's own
 calibration. **C** switches to the depth view (a 3D surface of what the depth camera sees: board
 grey, objects orange, hands purple), which is handy for seeing what the game counts as an object.
+
+## How a round of Shape catcher plays
+
+1. Stand about **2 m** in front of the Kinect, so it sees you from head to feet. Purple balls
+   appear on your hands and feet once it's following you. If several people are in view, the one
+   nearest the middle plays.
+2. Press **Space** (or **A** on a gamepad) to start a two-minute round. The clock only runs while
+   someone's in view.
+3. Shapes appear around you, within arm's and leg's reach and a little in front of you, drift
+   slowly, and fade after a few seconds. Touch one with a hand or foot to catch it.
+4. For the first 10 seconds every shape is worth **+10**. Then the game calls out one shape at a
+   time ("Catch: ● Sphere"), and the called shapes pulse; only they score +10, any other costs 5.
+   There's always at least one of the called shape out.
+5. Shapes behind you, or behind furniture, are hidden where the real thing is in front of them,
+   so they look like they're really in the room. Your best score is kept.
+
+Without a Kinect (or with **K**), a pretend player stands 2 m away and the mouse is their right
+hand: move it over a shape to catch it.
+
+## The log
 
 The game writes a line to Unity's log every two seconds saying how it's running (lines start
 with `[Shapes]`), which helps track down slowdowns. In the editor the log is the Console; the full
@@ -136,7 +162,8 @@ shows it on screen.
   - `Board` is the arena built around a card, laid out by `ArenaLayout`; `BoardTracker` learns
     how the surface under it looks whenever it settles, then keeps `ObstacleMap`, the live map of
     things that rise from it.
-  - `GameRound` holds the rules, ported from the Android prototype; `HandSteering` does hand
+  - `CatchRound` holds Shape catcher's rules, following the people the Kinect sees (`Body`).
+  - `GameRound` holds the Card table rules, ported from the Android prototype; `HandSteering` does hand
     control.
   - `SimulatedTable` renders Kinect-like depth of a table scene, and a grey color picture of it
     with a card on it, for tests and for playing without a Kinect.
@@ -155,8 +182,10 @@ tests** workflow) with plain .NET, no Unity or Kinect needed. To run them locall
 
 ## Tuning
 
-- Game rules (round length, ball speed, spawning, points): `RoundRules` in
+- Card table rules (round length, ball speed, spawning, points): `RoundRules` in
   `Assets/Scripts/Core/GameRound.cs`.
+- Shape catcher rules (round length, shape and reach sizes, how far out shapes appear, how long
+  they last, points): `CatchRules` in `Assets/Scripts/Core/CatchRound.cs`.
 - What counts as an object (heights, how quickly it appears and clears): the constants at the top
   of `Assets/Scripts/Core/ObstacleMap.cs`.
 - Hand control (heights, dead zone): `Assets/Scripts/Core/HandSteering.cs`.

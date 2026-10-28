@@ -119,6 +119,32 @@ namespace ShapesKinect.Kinect
         /// <summary>Holds the simulated hand at a camera-space point, or takes it away with null.</summary>
         public void SetHand(NVector3? camera) => Room.Hand = camera == null ? (NVector3?)null : Room.CameraToRoom(camera.Value);
 
+        /// <summary>
+        /// For Shape catcher: a person standing 2 m in front of the simulated Kinect, their right
+        /// hand where <see cref="SetCatcherHand"/> puts it, or down by their side.
+        /// </summary>
+        public void GetBodies(List<Body> bodies)
+        {
+            bodies.Clear();
+            var person = new Body();
+            var middle = new NVector3(0f, 0f, 2f);
+            person.Set(BodyJoint.Head, middle + new NVector3(0f, 0.45f, 0f), true);
+            person.Set(BodyJoint.SpineShoulder, middle + new NVector3(0f, 0.3f, 0f), true);
+            person.Set(BodyJoint.SpineMid, middle, true);
+            person.Set(BodyJoint.SpineBase, middle + new NVector3(0f, -0.25f, 0f), true);
+            // Camera space has X to the Kinect's left, which is the person's right as they face it.
+            person.Set(BodyJoint.HandLeft, middle + new NVector3(-0.25f, -0.3f, -0.05f), true);
+            person.Set(BodyJoint.HandRight, catcherHand ?? middle + new NVector3(0.25f, -0.3f, -0.05f), true);
+            person.Set(BodyJoint.FootLeft, middle + new NVector3(-0.15f, -1f, 0f), true);
+            person.Set(BodyJoint.FootRight, middle + new NVector3(0.15f, -1f, 0f), true);
+            bodies.Add(person);
+        }
+
+        private NVector3? catcherHand;
+
+        /// <summary>Puts the simulated person's right hand at a camera-space point, or back by their side with null.</summary>
+        public void SetCatcherHand(NVector3? camera) => catcherHand = camera;
+
         public void GetHands(List<NVector3> hands)
         {
             if (Room.Hand != null) hands.Add(Room.RoomToCamera(Room.Hand.Value));

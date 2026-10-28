@@ -19,7 +19,10 @@ namespace ShapesKinect.Game
     /// </summary>
     public sealed class GameManager : MonoBehaviour
     {
+        /// <summary>The menu, or which of the two prototypes is being played.</summary>
+        private enum Mode { Menu, CardTable, Catcher }
         private enum State { Look, Ready, Playing, Results }
+        private enum CatchState { Ready, Playing, Results }
         private enum Steering { Stick, Hand }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -62,7 +65,22 @@ namespace ShapesKinect.Game
         private Camera viewCamera;
         private int drawnObstacleVersion = -1;
 
+        private Mode mode = Mode.Menu;
+        /// <summary>Which menu entry is picked.</summary>
+        private int menuChoice;
+        private float menuMovedAt = -10f;
         private State state = State.Look;
+
+        // Shape catcher.
+        private CatchState catchState;
+        private CatchRound catchRound;
+        private CatchVisuals catchVisuals;
+        /// <summary>The Kinect's view of the room, drawn invisibly so shapes go behind people and things.</summary>
+        private TableView depthMask;
+        private bool hasDepthMask;
+        private readonly List<Body> bodies = new List<Body>();
+        private int lastCatchScore;
+        private bool newBestCatch;
         private Steering steering = Steering.Stick;
         private GameRound round;
         private string message;
@@ -145,6 +163,12 @@ namespace ShapesKinect.Game
             objectLines.transform.SetParent(boardRoot, false);
             visuals = new GameObject("Round").AddComponent<ShapeVisuals>();
             visuals.transform.SetParent(boardRoot, false);
+
+            catchVisuals = new GameObject("Shape catcher").AddComponent<CatchVisuals>();
+            catchVisuals.ToWorld = p => ToUnity(ToView(p));
+            depthMask = new GameObject("Room depth (invisible)").AddComponent<TableView>();
+            hasDepthMask = depthMask.UseAsMask();
+            depthMask.gameObject.SetActive(false);
         }
 
         private void UseKinect()
@@ -224,28 +248,25 @@ namespace ShapesKinect.Game
             var frame = source.Latest;
             HandleInput(frame);
 
-            watch.Restart();
-            Watchdog.Mark("looking for the card");
-            if (cardTracker.Update(source.ColorGray, source.ColorCamera, frame, Time.unscaledTime))
-            {
-                slowestCard = System.Math.Max(slowestCard, watch.Elapsed.TotalMilliseconds);
-                RecordCardPicture();
-            }
-            FollowCard();
-            var cardOrigin = cardTracker.Current?.Frame.Origin;
-            if (cardOrigin != null && lastCardOrigin != null) cardWobble = Mathf.Max(cardWobble, NVector3.Distance(cardOrigin.Value, lastCardOrigin.Value));
-            lastCardOrigin = cardOrigin;
-
             var newFrame = frame != null && frame.Number != lastFrameNumber;
             if (newFrame)
             {
                 lastFrameNumber = frame.Number;
                 framesThisSecond++;
-                watch.Restart();
-                Watchdog.Mark("watching the board");
-                boardTracker?.Update(frame, frame.Width > 300 ? 2 : 1);
-                slowestTracking = System.Math.Max(slowestTracking, watch.Elapsed.TotalMilliseconds);
             }
+            switch (mode)
+            {
+                case Mode.Menu:
+                    UpdateMenu();
+                    break;
+                case Mode.CardTable:
+                    UpdateCardTable(frame, newFrame);
+                    break;
+                case Mode.Catcher:
+                    UpdateCatcher(frame, newFrame);
+                    break;
+            }
+
             watch.Restart();
             Watchdog.Mark("updating the view");
             UpdateView(frame, newFrame);
@@ -258,6 +279,134 @@ namespace ShapesKinect.Game
                 depthRate = framesThisSecond / rateTimer;
                 framesThisSecond = 0;
                 rateTimer = 0f;
+            }
+            // Until the next Update, Unity itself has the main thread: rendering, the editor, other scripts.
+            Watchdog.Mark("Unity, between game updates (rendering, editor)");
+        }
+
+        /// <summary>The prototypes on the menu: name, and what it is.</summary>
+        private static readonly (Mode mode, string name, string about)[] MenuEntries =
+        {
+            (Mode.CardTable, "Card table", "Lay a printed Shapes card on the table; roll the ball round its arena."),
+            (Mode.Catcher, "Shape catcher", "Stand back from the Kinect and catch the called shapes with your hands and feet."),
+        };
+
+        /// <summary>Picks a prototype with the stick, arrows or number keys (or the mouse, in <see cref="OnGUI"/>).</summary>
+        private void UpdateMenu()
+        {
+            var key = Controls.NumberKey;
+            if (key >= 0 && key < MenuEntries.Length)
+            {
+                EnterMode(MenuEntries[key].mode);
+                return;
+            }
+            var move = Controls.Move.y;
+            if (Mathf.Abs(move) > 0.5f && Time.unscaledTime - menuMovedAt > 0.25f)
+            {
+                menuMovedAt = Time.unscaledTime;
+                menuChoice = (menuChoice + (move < 0f ? 1 : MenuEntries.Length - 1)) % MenuEntries.Length;
+            }
+            if (Mathf.Abs(move) <= 0.5f) menuMovedAt = -10f;
+            if (Controls.Confirm) EnterMode(MenuEntries[menuChoice].mode);
+        }
+
+        /// <summary>Leaves whatever's being played and goes to <paramref name="next"/>.</summary>
+        private void EnterMode(Mode next)
+        {
+            EndRound();
+            LoseBoard();
+            catchRound = null;
+            catchState = CatchState.Ready;
+            catchVisuals.Hide();
+            mode = next;
+            Debug.Log($"[Shapes] {(next == Mode.Menu ? "Back to the menu" : $"Playing {next}")}.");
+        }
+
+        /// <summary>
+        /// Shape catcher: follows the people the Kinect sees, runs the round, and draws the shapes
+        /// around them, hidden behind real people and things where they're behind them.
+        /// </summary>
+        private void UpdateCatcher(DepthFrame frame, bool newFrame)
+        {
+            source.GetBodies(bodies);
+            if (catchState == CatchState.Playing && catchRound != null)
+            {
+                foreach (var e in catchRound.Update(Time.deltaTime, bodies)) OnCatchEvent(e);
+            }
+            catchVisuals.Show(catchState == CatchState.Ready ? null : catchRound, bodies);
+            // The invisible room only matters over the color picture; the depth view shows it already.
+            var masking = hasDepthMask && showColor && source.ColorTexture != null && frame != null;
+            depthMask.gameObject.SetActive(masking);
+            if (masking && newFrame) depthMask.Show(frame, null, null);
+        }
+
+        private void StartCatchRound()
+        {
+            Debug.Log("[Shapes] Starting a round of Shape catcher.");
+            catchVisuals.Hide();
+            catchRound = new CatchRound();
+            catchState = CatchState.Playing;
+            newBestCatch = false;
+        }
+
+        private void OnCatchEvent(RoundEvent e)
+        {
+            switch (e)
+            {
+                case RoundEvent.Finished finished:
+                    lastCatchScore = finished.Score;
+                    var best = PlayerPrefs.GetInt("best catch", 0);
+                    newBestCatch = finished.Score > best;
+                    if (newBestCatch)
+                    {
+                        PlayerPrefs.SetInt("best catch", finished.Score);
+                        PlayerPrefs.Save();
+                    }
+                    catchState = CatchState.Results;
+                    break;
+                default:
+                    // Points and call-outs show just as in the other game.
+                    OnRoundEvent(e);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// For the simulator: where the mouse points, as the simulated person's right hand, in
+        /// camera space: on a flat sheet 1.85 m out, just in front of them.
+        /// </summary>
+        private NVector3? PointerCatcherHand()
+        {
+            var pointer = Controls.Pointer;
+            if (pointer == null) return null;
+            var ray = viewCamera.ScreenPointToRay(pointer.Value);
+            var sheet = new UnityEngine.Plane(Vector3.back, new Vector3(0f, 0f, 1.85f));
+            if (!sheet.Raycast(ray, out var distance)) return null;
+            var world = ray.GetPoint(distance);
+            return ToView(new NVector3(world.x, world.y, world.z));
+        }
+
+        /// <summary>The Card table prototype: the arena follows a printed card, and the ball is rolled around it.</summary>
+        private void UpdateCardTable(DepthFrame frame, bool newFrame)
+        {
+            watch.Restart();
+            Watchdog.Mark("looking for the card");
+            if (cardTracker.Update(source.ColorGray, source.ColorCamera, frame, Time.unscaledTime))
+            {
+                slowestCard = System.Math.Max(slowestCard, watch.Elapsed.TotalMilliseconds);
+                RecordCardPicture();
+            }
+            FollowCard();
+            var cardOrigin = cardTracker.Current?.Frame.Origin;
+            if (cardOrigin != null && lastCardOrigin != null) cardWobble = Mathf.Max(cardWobble, NVector3.Distance(cardOrigin.Value, lastCardOrigin.Value));
+            lastCardOrigin = cardOrigin;
+
+            if (newFrame)
+            {
+                watch.Restart();
+                Watchdog.Mark("watching the board");
+                boardTracker?.Update(frame, frame.Width > 300 ? 2 : 1);
+                slowestTracking = System.Math.Max(slowestTracking, watch.Elapsed.TotalMilliseconds);
             }
 
             var obstacleVersion = boardTracker != null && boardTracker.IsReady ? boardTracker.Obstacles.Version : -1;
@@ -285,14 +434,37 @@ namespace ShapesKinect.Game
                 foreach (var e in round.Update(Time.deltaTime, move.x, move.y)) OnRoundEvent(e);
             }
             if (round != null) visuals.Show(round, steering == Steering.Hand ? hand : null);
-            // Until the next Update, Unity itself has the main thread: rendering, the editor, other scripts.
-            Watchdog.Mark("Unity, between game updates (rendering, editor)");
         }
 
         private void HandleInput(DepthFrame frame)
         {
-            // In a built game; the editor ignores it.
-            if (Controls.Quit) Application.Quit();
+            if (Controls.Quit)
+            {
+                // Back to the menu from a game; from the menu, quit (in a built game; the editor ignores it).
+                if (mode == Mode.Menu) Application.Quit();
+                else EnterMode(Mode.Menu);
+                return;
+            }
+
+            if (Controls.SwitchView)
+            {
+                showColor = !showColor;
+                Say(showColor ? "Color view." : "Depth view.");
+            }
+
+            if (Controls.Screenshot && frame != null)
+            {
+                var saved = SaveCapture(frame, screenshot: true);
+                if (saved != null) Say($"Saved a screenshot and what the Kinect saw in {saved}.", 6f);
+            }
+
+            if (mode == Mode.Catcher)
+            {
+                if (source is SimulatedDepthSource pretend) pretend.SetCatcherHand(PointerCatcherHand());
+                if (Controls.Confirm && catchState != CatchState.Playing) StartCatchRound();
+                return;
+            }
+            if (mode != Mode.CardTable) return;
 
             if (source is SimulatedDepthSource simulated)
             {
@@ -301,18 +473,6 @@ namespace ShapesKinect.Game
                 var card = key - SimulatedDepthSource.Props.Length;
                 if (card >= 0 && card < SimulatedDepthSource.Cards.Length) simulated.ToggleCard(card);
                 simulated.SetHand(steering == Steering.Hand ? PointerHand() : null);
-            }
-
-            if (Controls.SwitchView)
-            {
-                showColor = !showColor;
-                Say(showColor ? "Color view." : "Depth view: board grey, objects orange, hands purple.");
-            }
-
-            if (Controls.Screenshot && frame != null)
-            {
-                var saved = SaveCapture(frame, screenshot: true);
-                if (saved != null) Say($"Saved a screenshot and what the Kinect saw in {saved}.", 6f);
             }
 
             if (Controls.RecordCard && cardRecording == null) StartCardRecording();
@@ -706,6 +866,81 @@ namespace ShapesKinect.Game
 
         // ---- On-screen text ----
 
+        private void DrawMenu(float unit, int width, int height)
+        {
+            GUI.Box(new Rect(width * 0.25f, height * 0.12f, width * 0.5f, unit * 20f), GUIContent.none, panel);
+            GUI.Label(new Rect(width * 0.25f, height * 0.12f + unit, width * 0.5f, unit * 2.5f), "Shapes Game AR", big);
+            GUI.Label(new Rect(width * 0.27f, height * 0.12f + unit * 3.5f, width * 0.46f, unit * 1.5f), "Pick a prototype: click it, or use the arrows or stick and Space (or A).", medium);
+            for (var i = 0; i < MenuEntries.Length; i++)
+            {
+                var entry = MenuEntries[i];
+                var box = new Rect(width * 0.3f, height * 0.12f + unit * (6f + i * 6.5f), width * 0.4f, unit * 5.5f);
+                var picked = i == menuChoice;
+                var label = $"{i + 1}. {entry.name}\n<size={Mathf.RoundToInt(unit * 0.7f)}>{entry.about}</size>";
+                var style = new GUIStyle(GUI.skin.button) { fontSize = Mathf.RoundToInt(unit * 1.1f), wordWrap = true, richText = true };
+                style.normal.textColor = picked ? new Color(0.5f, 0.9f, 1f) : Color.white;
+                if (GUI.Button(box, label, style)) EnterMode(entry.mode);
+                if (box.Contains(Event.current.mousePosition)) menuChoice = i;
+            }
+        }
+
+        private void DrawCatcher(float unit, int width, int height)
+        {
+            var round = catchRound;
+            if (catchState == CatchState.Playing && round != null)
+            {
+                var seconds = Mathf.CeilToInt(round.TimeLeft);
+                medium.alignment = TextAnchor.MiddleLeft;
+                GUI.Label(new Rect(unit, unit * 0.5f, width / 3f, unit * 2f), $"Score {round.Score}", medium);
+                medium.alignment = TextAnchor.MiddleRight;
+                GUI.Label(new Rect(width - width / 3f - unit, unit * 0.5f, width / 3f, unit * 2f), $"{seconds / 60}:{seconds % 60:00}", medium);
+                medium.alignment = TextAnchor.MiddleCenter;
+                var target = round.Target;
+                var pulse = 1f + 0.4f * Mathf.Clamp01(1f - (Time.time - targetPulseStart) / 0.4f);
+                big.fontSize = Mathf.RoundToInt(unit * 1.6f * pulse);
+                big.normal.textColor = target == null ? Color.white : ShapeVisuals.ToColor(target.Value.Color());
+                GUI.Label(new Rect(0, unit * 2f, width, unit * 3f),
+                    target == null ? "Catch any shape!" : $"Catch: {target.Value.Symbol()} {target.Value.Label()}", big);
+                big.normal.textColor = Color.white;
+                big.fontSize = Mathf.RoundToInt(unit * 1.6f);
+
+                var age = Time.time - popupStart;
+                if (age < 0.7f)
+                {
+                    var color = popupColor;
+                    color.a = 1f - age / 0.7f;
+                    big.normal.textColor = color;
+                    GUI.Label(new Rect(0, height / 2f - unit * 4f - age * unit * 3f, width, unit * 3f), popupText, big);
+                    big.normal.textColor = Color.white;
+                }
+                if (!round.HasPlayer)
+                {
+                    GUI.Label(new Rect(0, height - unit * 7f, width, unit * 2f), "Step into view: the round waits for you.", medium);
+                }
+                return;
+            }
+
+            string title, about;
+            if (catchState == CatchState.Results)
+            {
+                title = "Time's up!";
+                about = $"Score: {lastCatchScore}   {(newBestCatch ? "New best!" : $"Best: {PlayerPrefs.GetInt("best catch", 0)}")}\nPress Space (or A) to play again.";
+            }
+            else if (bodies.Count == 0)
+            {
+                title = "Shape catcher";
+                about = "Stand about 2 m from the Kinect, where it can see all of you. Purple balls appear on your hands and feet when it does.";
+            }
+            else
+            {
+                title = "Shape catcher";
+                about = "Shapes appear around you: touch them with a hand or foot. After a few seconds the game calls one out: only that one scores, others cost points. Press Space (or A) to start.";
+            }
+            GUI.Box(new Rect(width * 0.2f, height * 0.12f, width * 0.6f, unit * 7f), GUIContent.none, panel);
+            GUI.Label(new Rect(width * 0.2f, height * 0.12f + unit * 0.5f, width * 0.6f, unit * 2.5f), title, big);
+            GUI.Label(new Rect(width * 0.22f, height * 0.12f + unit * 3f, width * 0.56f, unit * 3.5f), about, medium);
+        }
+
         private GUIStyle big;
         private GUIStyle medium;
         private GUIStyle small;
@@ -732,7 +967,15 @@ namespace ShapesKinect.Game
             var width = Screen.width;
             var height = Screen.height;
 
-            if (state == State.Playing && round != null)
+            if (mode == Mode.Menu)
+            {
+                DrawMenu(unit, width, height);
+            }
+            else if (mode == Mode.Catcher)
+            {
+                DrawCatcher(unit, width, height);
+            }
+            else if (state == State.Playing && round != null)
             {
                 var seconds = Mathf.CeilToInt(round.TimeLeft);
                 medium.alignment = TextAnchor.MiddleLeft;
@@ -794,9 +1037,21 @@ namespace ShapesKinect.Game
 
             var status = $"{source.Name} · {depthRate:0} depth frames/s · {1000f * Time.smoothDeltaTime:0} ms per frame · " +
                 $"{(steering == Steering.Stick ? "Stick" : "Hand")} control (Tab) · {(showColor ? "Color" : "Depth")} view (C)";
-            status += cardTracker.Current == null ? " · No card seen" : $" · Card {cardTracker.Current.Id + 1}{(cardTracker.IsVisible ? "" : " (hidden)")}";
-            if (state != State.Playing) status += " · P saves a screenshot · J records the card · K switches Kinect/simulator";
-            if (source is SimulatedDepthSource simulated)
+            if (mode == Mode.CardTable)
+            {
+                status += cardTracker.Current == null ? " · No card seen" : $" · Card {cardTracker.Current.Id + 1}{(cardTracker.IsVisible ? "" : " (hidden)")}";
+                if (state != State.Playing) status += " · P saves a screenshot · J records the card · K switches Kinect/simulator";
+            }
+            else if (mode == Mode.Catcher)
+            {
+                status += $" · {bodies.Count} {(bodies.Count == 1 ? "person" : "people")} seen · P saves a screenshot · K switches Kinect/simulator";
+            }
+            if (mode != Mode.Menu) status += " · Escape: menu";
+            if (source is SimulatedDepthSource && mode == Mode.Catcher)
+            {
+                status += "\nSimulated Kinect: a pretend player stands 2 m away, and the mouse is their right hand.";
+            }
+            else if (source is SimulatedDepthSource simulated && mode == Mode.CardTable)
             {
                 var props = SimulatedDepthSource.Props.Select((p, i) => $"{i + 1}: {p.name}{(simulated.IsPropOn(i) ? " (on)" : "")}");
                 var cards = SimulatedDepthSource.Cards.Select((c, i) => $"{i + 1 + SimulatedDepthSource.Props.Length}: {c.name}{(simulated.CardOn == i ? " (on)" : "")}");
