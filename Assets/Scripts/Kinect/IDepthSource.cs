@@ -27,6 +27,9 @@ namespace ShapesKinect.Kinect
         /// </summary>
         PinholeCamera ColorCamera { get; }
 
+        /// <summary>The color camera's newest image in grey, at half size, for finding cards in; null without one.</summary>
+        GrayImage ColorGray { get; }
+
         /// <summary>Call once per Unity frame to pick up new images.</summary>
         void Tick();
 

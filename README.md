@@ -1,9 +1,10 @@
 # Shapes Game AR (Kinect)
 
-A tabletop take on the Shapes game for PC, using a Kinect v2 as a depth camera. Click a table, a
-desk or the floor in the Kinect's view, and the game puts its own board down on it; roll a ball
-around the board to collect shapes. Anything real you put on the board, like a cup, a book or a
-box, becomes an obstacle the ball has to go around, live.
+A tabletop take on the Shapes game for PC, using a Kinect v2. Lay a printed Shapes card on the
+table, like the Nintendo 3DS's AR cards, and the game builds its arena around it; roll a ball around
+the arena to collect shapes. Move the card and the arena moves with it. Each card brings up a
+different arena, and anything real you put on the arena, like a cup, a book or a box, becomes an
+obstacle the ball has to go around, live.
 
 It grew out of [Shapes-Game-AR](https://github.com/tadnorman2/Shapes-Game-AR), an Android ARCore
 prototype. Phone depth couldn't find table edges or objects reliably; the Kinect measures depth
@@ -11,15 +12,16 @@ directly, so this version can.
 
 ## How a round plays
 
-1. Point the Kinect at a table or other flat surface. Move the mouse over it: the flat surface
-   under the mouse is outlined in blue. **Click** it.
-2. The game's board (60 x 40 cm, with low glowing walls) appears on the surface, slid and turned
-   to sit on it near where you clicked, and made smaller if the surface is too small. Adjust it:
-   **WASD, arrows or the stick** slide it, **Q/E** (or the shoulder buttons) turn it, **+/-** (or
-   the d-pad) resize it. It turns orange if it hangs off the surface. Click elsewhere to start
-   over somewhere else.
-3. Press **Space** (or **A** on a gamepad) to put the board down, keep it clear for a moment while
-   the game looks at it, then press **Space** again to start a three-minute round.
+1. Print the cards: [`Cards/ShapesCards.pdf`](Cards/ShapesCards.pdf), one per page. Print at
+   **actual size** (100%, not "fit to page") on matte paper or card.
+2. Lay a card flat on the table where the Kinect can see it, with its white border showing. Its
+   arena appears around it within a moment: 60 x 40 cm with low glowing walls, its far side toward
+   the card's top (the label is at the bottom).
+   - **Card 1, Open field**: an open arena. **Card 2, Pillars**: four pillars to steer round.
+     **Card 3, Zigzag**: two walls to weave between.
+   - Slide or turn the card and the arena follows. A hand passing over it doesn't lose it.
+3. Keep the arena clear for a moment while the game looks at it, then press **Space** (or **A**
+   on a gamepad) to start a three-minute round. The ball starts on the card.
 4. Steer the ball with the **left stick, WASD or arrow keys**, or press **Tab** (gamepad **X**)
    for **hand control**: hold a hand 15-60 cm above the board and the ball rolls toward the spot
    under it.
@@ -30,8 +32,8 @@ directly, so this version can.
    under them disappear. Only things touching the board count (1.5-15 cm up), so your hand and
    arm above it don't get in the way.
 
-**R** (gamepad **Y**) goes back to picking a surface. **K** switches between the
-Kinect and the simulated table. The screen shows the Kinect's color camera like a
+During a round the arena keeps following the card; if the card can't be seen, it stays where the
+card last was. **K** switches between the Kinect and the simulated table. The screen shows the Kinect's color camera like a
 normal video, with the ball, shapes and outlines drawn on top, lined up with the real table: the
 game works out exactly where the color camera is and how its lens sees from the Kinect's own
 calibration. **C** switches to the depth view (a 3D surface of what the depth camera sees: board
@@ -63,8 +65,8 @@ Then:
 4. Press **Play**. The game builds its own scene, so there's nothing else to open.
 
 Without the plugin, or without a Kinect plugged in, the game runs on a **simulated table**
-instead, so it can be tried anywhere. Number keys **1-3** put a cup, a book and a box on it, and
-in hand control the mouse is the hand.
+instead, so it can be tried anywhere. Number keys **1-3** put a cup, a book and a box on it,
+**4-6** swap which card is on it (or take it off), and in hand control the mouse is the hand.
 
 ### If the Kinect keeps restarting
 
@@ -100,42 +102,48 @@ can start `Builds/ShapesKinect/ShapesKinect.exe` directly, until the code change
 The project also turns off Unity Remote (**Edit → Project Settings → Editor → Unity Remote →
 Device: None**), which scans USB for phones.
 
-### Placing the Kinect
+### Placing the Kinect and the card
 
-There's no set way to place it: anywhere it sees a good piece of flat surface works, from looking
-almost straight across a table to looking straight down. Things to know:
+There's no set way to place the Kinect: anywhere its color camera sees the card clearly works.
+Things to know:
 
-- It can't see closer than 50 cm, and its depth gets rougher past 2 m.
-- Only level surfaces can be picked; walls and the sides of things can't.
-- The board lies on the plane of the surface right where you clicked. From low down, the Kinect
-  reads the far part of a table as rising, so it only counts the nearer, flat-looking part as the
-  surface; the board may come out smaller there. Looking down more steeply gives more room and
-  steadier object detection.
+- The card is read from the color picture, so it needs to look big enough: from about 0.45 m to
+  1.2 m away when the Kinect looks across the table, further when it looks down more steeply.
+- Light matters more than for depth: a lamp over the table helps in a dim room. Avoid glare on
+  glossy paper.
+- The depth camera can't see closer than 50 cm. Where it sees the card, it sets exactly how the
+  card lies; nearer than that, or where there's no depth, the game goes by the picture alone,
+  which is a little less steady.
+- Real objects are found with the depth camera, so they count from about 50 cm out.
 
 Press **P** (or **F12**) at any time to save what the Kinect sees (a `.depth` file and a `.jpg`
 photo) and a screenshot to a `Captures` folder, keeping the last ten. A `.txt` file beside them
-records where the game thinks the color camera, the surface and the board are, so the overlay can be checked
-against the photo. On Windows the folder is
+records where the game thinks the color camera, the card and the arena are, so the overlay can
+be checked against the photo. On Windows the folder is
 `%USERPROFILE%\AppData\LocalLow\DefaultCompany\<project folder name>\Captures`, and the game
 shows it on screen.
 
 ## How it's built
 
 - **`Assets/Scripts/Core`**: everything that isn't drawing, in plain C# with no Unity dependency:
-  - `SurfacePicker` finds the flat surface at a clicked point: the plane of the depth right
-    around it, then everything joined to it across the depth picture on that plane, without
-    jumps in depth.
-  - `Board` is the game's own arena on that surface, fitted on it and moved and turned by the
-    player; `BoardTracker` learns how the surface under it looks when it's put down, then keeps
-    `ObstacleMap`, the live map of things that rise from it.
+  - `CardDetector` finds the cards in a grey version of the color picture (`GrayImage`): dark
+    blobs with four-cornered outlines are read cell by cell against the patterns in `CardCodes`,
+    which survive two misread cells and a mirrored camera. `CardLocator` works out where a card
+    lies from where the color camera's lines of sight through its corners meet the plane the
+    depth camera measures under it, and `CardTracker` follows it from picture to picture.
+  - `Board` is the arena built around a card, laid out by `ArenaLayout`; `BoardTracker` learns
+    how the surface under it looks whenever it settles, then keeps `ObstacleMap`, the live map of
+    things that rise from it.
   - `GameRound` holds the rules, ported from the Android prototype; `HandSteering` does hand
     control.
-  - `SimulatedTable` renders Kinect-like depth of a table scene, for tests and for playing
-    without a Kinect.
+  - `SimulatedTable` renders Kinect-like depth of a table scene, and a grey color picture of it
+    with a card on it, for tests and for playing without a Kinect.
 - **`Assets/Scripts/Kinect`**: where depth comes from: the real Kinect (`KinectDepthSource`,
   compiled once the plugin is imported) or the simulator.
 - **`Assets/Scripts/Game`**: the Unity side: the live 3D view of what the Kinect sees, the
   outlines, the ball and shapes, controls, and the on-screen text. `GameManager` runs it all.
+- **`Cards/make_cards.py`** makes the printable cards from the patterns and arena names in the
+  code (`python Cards/make_cards.py`, with Pillow installed).
 - **`Assets/Editor/KinectSetup.cs`** turns the `KINECT_V2` scripting symbol on when the plugin is
   present.
 
@@ -150,3 +158,5 @@ tests** workflow) with plain .NET, no Unity or Kinect needed. To run them locall
 - What counts as an object (heights, how quickly it appears and clears): the constants at the top
   of `Assets/Scripts/Core/ObstacleMap.cs`.
 - Hand control (heights, dead zone): `Assets/Scripts/Core/HandSteering.cs`.
+- The arenas (sizes, walls): `ArenaLayout.All` in `Assets/Scripts/Core/ArenaLayout.cs`. Adding
+  one there and running `Cards/make_cards.py` gives it a card.

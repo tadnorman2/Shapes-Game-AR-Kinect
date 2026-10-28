@@ -1,25 +1,26 @@
 using System.Collections.Generic;
+using ShapesKinect.Core;
 using UnityEngine;
 
 namespace ShapesKinect.Game
 {
     /// <summary>
     /// Draws the game's own arena: a see-through tinted floor with low glowing walls around it,
-    /// in the board's own coordinates (the middle at the origin, lying on Y = 0).
+    /// and the arena's own walls inside, in the board's coordinates (the middle at the origin,
+    /// lying on Y = 0).
     /// </summary>
     public sealed class BoardView : MonoBehaviour
     {
         private Mesh mesh;
-        private float width = -1f;
-        private float length = -1f;
-        private Color color;
+        private ArenaLayout shown;
 
-        /// <summary>How high the walls stand, in meters.</summary>
+        /// <summary>How high the walls around the edge stand, and the ones inside, in meters.</summary>
         private const float WallHeight = 0.02f;
+        private const float InnerWallHeight = 0.035f;
         private const float WallThickness = 0.008f;
 
-        public static readonly Color FitColor = new Color(0.35f, 0.85f, 1f);
-        public static readonly Color OffColor = new Color(1f, 0.6f, 0.2f);
+        private static readonly Color Tint = new Color(0.35f, 0.85f, 1f);
+        private static readonly Color InnerWall = new Color(0.55f, 0.6f, 1f);
 
         private void Awake()
         {
@@ -28,28 +29,31 @@ namespace ShapesKinect.Game
             gameObject.AddComponent<MeshRenderer>().sharedMaterial = Materials.VertexColor();
         }
 
-        /// <summary>Shows a board <paramref name="boardWidth"/> by <paramref name="boardLength"/> meters, in <paramref name="tint"/>.</summary>
-        public void Show(float boardWidth, float boardLength, Color tint)
+        /// <summary>Shows the arena <paramref name="layout"/>.</summary>
+        public void Show(ArenaLayout layout)
         {
             gameObject.SetActive(true);
-            if (Mathf.Approximately(boardWidth, width) && Mathf.Approximately(boardLength, length) && tint == color) return;
-            width = boardWidth;
-            length = boardLength;
-            color = tint;
+            if (layout == shown) return;
+            shown = layout;
 
             var vertices = new List<Vector3>();
             var colors = new List<Color>();
             var triangles = new List<int>();
-            float w = width / 2, l = length / 2;
-            // The floor, faint, just above the surface so it doesn't flicker into the depth.
+            float w = layout.Width / 2, l = layout.Length / 2;
+            // The floor, faint, just above the surface so it doesn't flicker into it.
             Quad(vertices, colors, triangles, new Vector3(-w, 0.001f, -l), new Vector3(w, 0.001f, -l),
-                new Vector3(w, 0.001f, l), new Vector3(-w, 0.001f, l), new Color(tint.r, tint.g, tint.b, 0.18f));
-            // Four walls, each a thin box.
-            var wall = new Color(tint.r, tint.g, tint.b, 0.85f);
+                new Vector3(w, 0.001f, l), new Vector3(-w, 0.001f, l), new Color(Tint.r, Tint.g, Tint.b, 0.18f));
+            // Four walls around the edge, each a thin box.
+            var wall = new Color(Tint.r, Tint.g, Tint.b, 0.85f);
             Box(vertices, colors, triangles, new Vector3(-w - WallThickness, 0f, -l - WallThickness), new Vector3(w + WallThickness, WallHeight, -l), wall);
             Box(vertices, colors, triangles, new Vector3(-w - WallThickness, 0f, l), new Vector3(w + WallThickness, WallHeight, l + WallThickness), wall);
             Box(vertices, colors, triangles, new Vector3(-w - WallThickness, 0f, -l), new Vector3(-w, WallHeight, l), wall);
             Box(vertices, colors, triangles, new Vector3(w, 0f, -l), new Vector3(w + WallThickness, WallHeight, l), wall);
+            // The arena's own walls.
+            foreach (var inner in layout.Walls)
+            {
+                Box(vertices, colors, triangles, new Vector3(inner.X1, 0f, inner.Z1), new Vector3(inner.X2, InnerWallHeight, inner.Z2), new Color(InnerWall.r, InnerWall.g, InnerWall.b, 0.9f));
+            }
 
             mesh.Clear();
             mesh.SetVertices(vertices);

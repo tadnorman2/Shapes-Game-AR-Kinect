@@ -20,6 +20,7 @@ namespace ShapesKinect.Kinect
         public DepthFrame Latest { get; private set; }
         public Texture2D ColorTexture { get; private set; }
         public PinholeCamera ColorCamera { get; private set; }
+        public GrayImage ColorGray { get; }
 
         /// <summary>Whether a Kinect is plugged in and powered, as far as the runtime knows.</summary>
         public bool IsAvailable => sensor != null && sensor.IsAvailable;
@@ -60,6 +61,7 @@ namespace ShapesKinect.Kinect
             colorWidth = colorDescription.Width;
             colorHeight = colorDescription.Height;
             colorData = new byte[colorDescription.BytesPerPixel * colorDescription.LengthInPixels];
+            ColorGray = new GrayImage(colorWidth / 2, colorHeight / 2, 2);
 
             depthReader = sensor.DepthFrameSource.OpenReader();
             colorReader = sensor.ColorFrameSource.OpenReader();
@@ -98,6 +100,7 @@ namespace ShapesKinect.Kinect
                     frame.CopyConvertedFrameDataToArray(colorData, Windows.Kinect.ColorImageFormat.Rgba);
                     ColorTexture.LoadRawTextureData(colorData);
                     ColorTexture.Apply(false);
+                    ColorGray.FillFromRgba(colorData, colorWidth, colorHeight);
                 }
             }
 

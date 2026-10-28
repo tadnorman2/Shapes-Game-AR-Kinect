@@ -4,10 +4,11 @@ using System.Numerics;
 namespace ShapesKinect.Core
 {
     /// <summary>
-    /// Watches the board during play for real things put on it, like a cup or a book: what
-    /// rises above the top of what was under each part of the board when play began. Comparing against how it looked, rather than against a perfectly flat plane, means
-    /// a surface the Kinect measures a bit wrong, as it does at a shallow angle, doesn't show up
-    /// as objects.
+    /// Watches the board for real things put on it, like a cup or a book: what rises above the
+    /// top of what was under each part of the board when it settled where it is. Comparing
+    /// against how it looked, rather than against a perfectly flat plane, means a surface the
+    /// Kinect measures a bit wrong, as it does at a shallow angle, doesn't show up as objects.
+    /// When the board moves with its card, it looks afresh.
     /// </summary>
     public sealed class BoardTracker
     {
@@ -19,11 +20,16 @@ namespace ShapesKinect.Core
         /// <summary>The top of what's under each cell of the board, learned as play began.</summary>
         private readonly float[] baseline;
         private int learned;
+        /// <summary>Where the board was when it began learning how the surface looks.</summary>
+        private TableFrame learnedAt;
 
         /// <summary>Pictures averaged to learn how the surface looks: a third of a second.</summary>
         private const int LearnFrames = 10;
         private const float MaxDistance = 4f;
         private const float MaxBelow = 0.05f;
+        /// <summary>A board moved more than this far, or turned more than this many degrees, looks afresh.</summary>
+        private const float MaxMove = 0.015f;
+        private const float MaxTurn = 3f;
 
         public BoardTracker(Board board)
         {
@@ -37,6 +43,7 @@ namespace ShapesKinect.Core
         /// <summary>Takes in a depth picture, using every <paramref name="step"/>th pixel each way.</summary>
         public void Update(DepthFrame depth, int step = 1)
         {
+            if (learnedAt == null || Moved()) Restart();
             if (!IsReady)
             {
                 ForEachOnBoard(depth, step, (cell, t, z) =>
@@ -60,8 +67,23 @@ namespace ShapesKinect.Core
             Obstacles.EndFrame();
         }
 
-        /// <summary>Where the ball can go: the board, minus the things on it.</summary>
-        public IPlayArea PlayArea() => new PlayArea((x, z) => Board.Contains(x, z) && !Obstacles.IsBlocked(x, z));
+        /// <summary>Where the ball can go: the board, minus its walls and the things on it.</summary>
+        public IPlayArea PlayArea() => new PlayArea((x, z) => Board.IsOpen(x, z) && (!IsReady || !Obstacles.IsBlocked(x, z)));
+
+        private bool Moved()
+        {
+            var (meters, degrees) = Board.Difference(learnedAt, Board.Frame);
+            return meters > MaxMove || degrees > MaxTurn;
+        }
+
+        /// <summary>Starts learning how the surface under the board looks, forgetting what was on it.</summary>
+        private void Restart()
+        {
+            learnedAt = Board.Frame;
+            learned = 0;
+            for (var i = 0; i < baseline.Length; i++) baseline[i] = float.NaN;
+            Obstacles.Clear();
+        }
 
         private void ForEachOnBoard(DepthFrame depth, int step, Action<int, Vector3, float> point)
         {

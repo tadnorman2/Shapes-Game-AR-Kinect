@@ -11,16 +11,15 @@ namespace ShapesKinect.Game
     /// Runs the whole game. Builds its own scene when Play is pressed, so the project needs no
     /// scene files: open it in Unity, press Play.
     ///
-    /// The flow: the surface under the mouse lights up; click a table, desk or any flat surface
-    /// and the game puts its own board down on it. Slide, turn and resize the board, press Space
-    /// (or A) to fix it there, and Space again to start a three-minute round, steering the ball
-    /// with a stick or keys, or with a hand held over the board (Tab switches). Real things put on
-    /// the board block the ball. Without a Kinect, a simulated table stands in, with number keys
-    /// to put objects on it.
+    /// The flow: put a printed Shapes card on the table, and the game builds its arena around it,
+    /// following the card as it's moved; each card brings up a different arena. Press Space (or
+    /// A) to start a three-minute round, steering the ball with a stick or keys, or with a hand
+    /// held over the board (Tab switches). Real things put on the board block the ball. Without a
+    /// Kinect, a simulated table stands in, with number keys to put objects and cards on it.
     /// </summary>
     public sealed class GameManager : MonoBehaviour
     {
-        private enum State { Pick, Place, Ready, Playing, Results }
+        private enum State { Look, Ready, Playing, Results }
         private enum Steering { Stick, Hand }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -44,17 +43,12 @@ namespace ShapesKinect.Game
         private int framesThisSecond;
         private float rateTimer;
 
-        /// <summary>The surface under the mouse while picking, or null.</summary>
-        private PickedSurface hovered;
-        private float nextHover;
+        private readonly CardTracker cardTracker = new CardTracker();
         private Board board;
         private BoardTracker boardTracker;
 
         private TableView tableView;
         private BackgroundView background;
-        /// <summary>Holds what's drawn in the hovered surface's coordinates: its outline.</summary>
-        private Transform surfaceRoot;
-        private LineLayer surfaceLines;
         /// <summary>Holds what's drawn in the board's coordinates: the board, the ball and shapes, object rings.</summary>
         private Transform boardRoot;
         private BoardView boardView;
@@ -63,7 +57,7 @@ namespace ShapesKinect.Game
         private Camera viewCamera;
         private int drawnObstacleVersion = -1;
 
-        private State state = State.Pick;
+        private State state = State.Look;
         private Steering steering = Steering.Stick;
         private GameRound round;
         private string message;
@@ -81,6 +75,7 @@ namespace ShapesKinect.Game
         private readonly System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
         private double slowestTick;
         private double slowestTracking;
+        private double slowestCard;
         private double slowestView;
         private float slowestFrame;
         private float nextLog;
@@ -92,16 +87,6 @@ namespace ShapesKinect.Game
 
         /// <summary>Where the simulated hand is held: 30 cm above the board.</summary>
         private const float SimulatedHandHeight = 0.3f;
-
-        /// <summary>How fast the board slides (meters a second) and turns (degrees a second) while placing it.</summary>
-        private const float SlideSpeed = 0.25f;
-        private const float TurnSpeed = 60f;
-
-        /// <summary>The surface under the mouse is looked for this often, in seconds.</summary>
-        private const float HoverInterval = 0.15f;
-
-        /// <summary>A board with less than this much of it on the surface is shown as hanging off.</summary>
-        private const float GoodCoverage = 0.8f;
 
         /// <summary>
         /// How long to wait for the Kinect's first image before falling back to the simulator. The
@@ -142,11 +127,6 @@ namespace ShapesKinect.Game
 
             tableView = new GameObject("Kinect view").AddComponent<TableView>();
             background = new GameObject("Background").AddComponent<BackgroundView>();
-
-            surfaceRoot = new GameObject("Hovered surface").transform;
-            surfaceLines = new GameObject("Surface edge").AddComponent<LineLayer>();
-            surfaceLines.SetColor(new Color(0.4f, 0.9f, 1f, 0.8f));
-            surfaceLines.transform.SetParent(surfaceRoot, false);
 
             boardRoot = new GameObject("Board").transform;
             boardView = new GameObject("Board walls").AddComponent<BoardView>();
@@ -193,8 +173,9 @@ namespace ShapesKinect.Game
             waitingForKinectSince = -1f;
             lastFrameNumber = -1;
             Debug.Log($"[Shapes] Using {newSource.Name}.");
-            // A different camera means a different view: pick the surface again.
-            BackToPicking();
+            // A different camera means a different view: look for the card afresh.
+            cardTracker.Reset();
+            LoseBoard();
         }
 
         private void OnDestroy()
@@ -233,6 +214,11 @@ namespace ShapesKinect.Game
 
             var frame = source.Latest;
             HandleInput(frame);
+
+            watch.Restart();
+            Watchdog.Mark("looking for the card");
+            if (cardTracker.Update(source.ColorGray, source.ColorCamera, frame, Time.unscaledTime)) slowestCard = System.Math.Max(slowestCard, watch.Elapsed.TotalMilliseconds);
+            FollowCard();
 
             var newFrame = frame != null && frame.Number != lastFrameNumber;
             if (newFrame)
@@ -296,6 +282,8 @@ namespace ShapesKinect.Game
             {
                 var key = Controls.NumberKey;
                 if (key >= 0 && key < SimulatedDepthSource.Props.Length) simulated.ToggleProp(key);
+                var card = key - SimulatedDepthSource.Props.Length;
+                if (card >= 0 && card < SimulatedDepthSource.Cards.Length) simulated.ToggleCard(card);
                 simulated.SetHand(steering == Steering.Hand ? PointerHand() : null);
             }
 
@@ -319,127 +307,46 @@ namespace ShapesKinect.Game
                     : "Stick control: left stick, WASD or arrow keys.");
             }
 
-            if (Controls.PickAgain && state != State.Playing && state != State.Pick)
+            if (Controls.Confirm && (state == State.Ready || state == State.Results)) StartRound();
+        }
+
+        /// <summary>
+        /// Builds the arena around the card on the table, or moves it to follow the card. A new
+        /// card brings up its own arena, except during a round. Without a card for a while, the
+        /// arena goes, except during a round, when it stays where the card last was.
+        /// </summary>
+        private void FollowCard()
+        {
+            var card = cardTracker.Current;
+            if (card == null)
             {
-                BackToPicking();
-                Say("Click a flat surface to put the board on it.");
+                if (state != State.Playing && board != null) LoseBoard();
                 return;
             }
-
-            switch (state)
+            var layout = ArenaLayout.ForCard(card.Id);
+            if (board == null || (board.Layout != layout && state != State.Playing))
             {
-                case State.Pick:
-                    UpdateHover(frame);
-                    if (Controls.Click && frame != null) PickSurface(frame);
-                    break;
-                case State.Place:
-                    PlaceBoard();
-                    if (Controls.Click && frame != null) PickSurface(frame);
-                    else if (Controls.Confirm) FixBoard();
-                    break;
-                case State.Ready:
-                case State.Results:
-                    if (Controls.Confirm) StartRound();
-                    break;
-            }
-        }
-
-        /// <summary>Lights up the flat surface under the mouse, a few times a second.</summary>
-        private void UpdateHover(DepthFrame frame)
-        {
-            if (frame == null || Time.unscaledTime < nextHover) return;
-            nextHover = Time.unscaledTime + HoverInterval;
-            var pixel = DepthPixelUnderPointer(frame);
-            // Coarser than a click picks, to keep it quick: it's only a preview.
-            hovered = pixel == null ? null : SurfacePicker.Pick(frame, pixel.Value.x, pixel.Value.y, step: 4);
-            surfaceLines.Begin();
-            if (hovered != null)
-            {
-                SetFrame(surfaceRoot, hovered.Frame);
-                hovered.TraceEdge(surfaceLines.Add);
-            }
-            surfaceLines.Rebuild();
-        }
-
-        /// <summary>Puts a board on the flat surface under the mouse, if there is one.</summary>
-        private void PickSurface(DepthFrame frame)
-        {
-            var pixel = DepthPixelUnderPointer(frame);
-            var surface = pixel == null ? null : SurfacePicker.Pick(frame, pixel.Value.x, pixel.Value.y);
-            if (surface == null)
-            {
-                Say("That's not a flat, level surface. Click a table, a desk or the floor.");
+                board = new Board(layout, card.Frame);
+                boardTracker = new BoardTracker(board);
+                drawnObstacleVersion = -1;
+                EndRound();
+                state = State.Ready;
+                Say($"{layout.Name}! Press Space (or A) to play.");
+                Debug.Log($"[Shapes] Found card {card.Id + 1} ({layout.Name}), {card.Size * 100:0.0} cm, {(card.FromDepth ? "placed by depth" : "placed by the picture alone")}.");
                 return;
             }
-            board = new Board(surface);
-            hovered = null;
-            surfaceLines.Clear();
-            state = State.Place;
-            Debug.Log($"[Shapes] Picked a surface of {surface.Area:0.00} m2; board {board.Width * 100:0} x {board.Length * 100:0} cm, {board.Coverage() * 100:0}% on it.");
+            board.MoveTo(card.Frame);
         }
 
-        /// <summary>Slides, turns and resizes the board as the player directs, while placing it.</summary>
-        private void PlaceBoard()
-        {
-            var move = Controls.Move * (SlideSpeed * Time.deltaTime);
-            var turn = Controls.Turn * TurnSpeed * Mathf.Deg2Rad * Time.deltaTime;
-            // The stick is relative to the view: up slides the board away from the camera.
-            var onSurface = StickOn(board.Surface.Frame, move);
-            if (move != Vector2.zero || turn != 0f) board.Move(onSurface.x, onSurface.y, turn);
-            var resize = Controls.Resize;
-            if (resize != 0) board.Resize(resize > 0 ? 1.1f : 1f / 1.1f);
-        }
-
-        /// <summary>Fixes the board where it is and starts learning how the surface under it looks.</summary>
-        private void FixBoard()
-        {
-            boardTracker = new BoardTracker(board);
-            drawnObstacleVersion = -1;
-            state = State.Ready;
-            Debug.Log($"[Shapes] Board fixed: {board.Width * 100:0} x {board.Length * 100:0} cm, {board.Coverage() * 100:0}% on the surface.");
-        }
-
-        private void BackToPicking()
+        private void LoseBoard()
         {
             EndRound();
             board = null;
             boardTracker = null;
-            hovered = null;
-            state = State.Pick;
+            state = State.Look;
             drawnObstacleVersion = -1;
-            surfaceLines?.Clear();
             objectLines?.Clear();
             boardView?.Hide();
-        }
-
-        /// <summary>
-        /// The depth pixel whose point shows nearest the mouse on screen, within a little way of
-        /// it, or null. Works the same in the color and depth views, since both draw through the
-        /// game's camera.
-        /// </summary>
-        private (int x, int y)? DepthPixelUnderPointer(DepthFrame frame)
-        {
-            var pointer = Controls.Pointer;
-            if (pointer == null) return null;
-            const int step = 4;
-            var maxDistance = Screen.height * 0.03f;
-            var best = maxDistance * maxDistance;
-            (int x, int y)? found = null;
-            for (var y = 0; y < frame.Height; y += step)
-            {
-                for (var x = 0; x < frame.Width; x += step)
-                {
-                    var p = frame[x, y];
-                    if (!DepthFrame.IsValid(p)) continue;
-                    var screen = viewCamera.WorldToScreenPoint(ToUnity(ToView(p)));
-                    if (screen.z <= 0f) continue;
-                    var d = new Vector2(screen.x, screen.y) - pointer.Value;
-                    if (d.sqrMagnitude >= best) continue;
-                    best = d.sqrMagnitude;
-                    found = (x, y);
-                }
-            }
-            return found;
         }
 
         /// <summary>
@@ -486,15 +393,18 @@ namespace ShapesKinect.Game
             text.AppendLine(c == null
                 ? "color camera: none"
                 : System.FormattableString.Invariant($"color camera: position {c.Position} right {c.Right} down {c.Down} forward {c.Forward} fx {c.Fx} fy {c.Fy} cx {c.Cx} cy {c.Cy} skew {c.Skew} size {c.Width}x{c.Height}"));
+            var card = cardTracker.Current;
+            if (card != null)
+            {
+                text.AppendLine(System.FormattableString.Invariant($"card: {card.Id + 1}, {card.Size} m, {(cardTracker.IsVisible ? "seen" : "held")}, {(card.FromDepth ? "by depth" : "by picture")}"));
+                var corners = cardTracker.LastSighting?.Corners;
+                if (corners != null) text.AppendLine(System.FormattableString.Invariant($"card corners in the color picture: {corners[0]} {corners[1]} {corners[2]} {corners[3]}"));
+            }
             if (board != null)
             {
                 var f = board.Frame;
-                text.AppendLine(System.FormattableString.Invariant($"board: {board.Width} x {board.Length} m, {board.Coverage()} on the surface, origin {f.Origin} up {f.Up} right {f.Right} forward {f.Forward}"));
-                text.AppendLine(System.FormattableString.Invariant($"surface: area {board.Surface.Area}"));
-                // Each piece of the surface's edge, and the board's, as two points in camera space.
-                var s = board.Surface.Frame;
-                board.Surface.TraceEdge((x1, z1, x2, z2) =>
-                    text.AppendLine(System.FormattableString.Invariant($"surface edge {s.ToCamera(new NVector3(x1, 0f, z1))} {s.ToCamera(new NVector3(x2, 0f, z2))}")));
+                text.AppendLine(System.FormattableString.Invariant($"board: {board.Layout.Name}, {board.Width} x {board.Length} m, origin {f.Origin} up {f.Up} right {f.Right} forward {f.Forward}"));
+                // Each side of the board as two points in camera space.
                 board.TraceEdge((x1, z1, x2, z2) =>
                     text.AppendLine(System.FormattableString.Invariant($"board edge {f.ToCamera(new NVector3(x1, 0f, z1))} {f.ToCamera(new NVector3(x2, 0f, z2))}")));
             }
@@ -529,16 +439,15 @@ namespace ShapesKinect.Game
         /// shapes line up with the real surface. In the depth view (C), or without a color camera,
         /// it's a 3D surface of what the depth camera sees, from the depth camera's position.
         ///
-        /// The game's world is the depth camera's view, unmirrored; the board and the hovered
-        /// surface are placed in it at their own positions.
+        /// The game's world is the depth camera's view, unmirrored; the board is placed in it
+        /// where its card is.
         /// </summary>
         private void UpdateView(DepthFrame frame, bool newFrame)
         {
             if (board != null)
             {
                 SetFrame(boardRoot, board.Frame);
-                var on = board.Coverage() >= GoodCoverage;
-                boardView.Show(board.Width, board.Length, on ? BoardView.FitColor : BoardView.OffColor);
+                boardView.Show(board.Layout);
             }
 
             var picture = source.ColorTexture;
@@ -595,10 +504,11 @@ namespace ShapesKinect.Game
             nextLog = Time.realtimeSinceStartup + LogInterval;
             Debug.Log($"[Shapes] {Time.realtimeSinceStartup:0.0} s · {source.Name} · {state} · {depthRate:0} depth pictures/s · " +
                 $"slowest in the last {LogInterval:0} s: frame {slowestFrame:0} ms, Kinect {slowestTick:0} ms, " +
-                $"tracking {slowestTracking:0} ms, view {slowestView:0} ms · memory {System.GC.GetTotalMemory(false) / 1048576} MB");
+                $"card {slowestCard:0} ms, objects {slowestTracking:0} ms, view {slowestView:0} ms · memory {System.GC.GetTotalMemory(false) / 1048576} MB");
             slowestFrame = 0f;
             slowestTick = 0;
             slowestTracking = 0;
+            slowestCard = 0;
             slowestView = 0;
         }
 
@@ -783,19 +693,13 @@ namespace ShapesKinect.Game
                 string body = null;
                 switch (state)
                 {
-                    case State.Pick:
-                        title = "Pick a surface";
-                        body = "Point the Kinect at a table, a desk or the floor, and click it. The surface under the mouse lights up.";
-                        break;
-                    case State.Place:
-                        title = "Place the board";
-                        body = board.Coverage() >= GoodCoverage
-                            ? "Slide it with the stick, WASD or arrows; turn it with Q/E; resize with + and -. Space (or A) puts it down; click to pick somewhere else."
-                            : "It's hanging off the surface: slide it on, or make it smaller with -. Space (or A) puts it down anyway; click to pick somewhere else.";
+                    case State.Look:
+                        title = "Put a Shapes card down";
+                        body = "Lay a printed Shapes card flat on the table where the Kinect can see it. Its arena appears around it.";
                         break;
                     case State.Ready:
-                        title = boardTracker.IsReady ? "Ready" : "Keep the board clear...";
-                        body = "Press Space (or A) to start a round. Put real things on the board and the ball has to go around them. R picks another surface.";
+                        title = boardTracker.IsReady ? board.Layout.Name : "Keep the board clear...";
+                        body = "Press Space (or A) to start a round. Move the card and the arena moves with it. Put real things on the board and the ball has to go around them.";
                         break;
                     case State.Results:
                         title = "Time's up!";
@@ -815,11 +719,13 @@ namespace ShapesKinect.Game
 
             var status = $"{source.Name} · {depthRate:0} depth frames/s · {1000f * Time.smoothDeltaTime:0} ms per frame · " +
                 $"{(steering == Steering.Stick ? "Stick" : "Hand")} control (Tab) · {(showColor ? "Color" : "Depth")} view (C)";
-            if (state != State.Playing) status += " · R picks another surface · P saves a screenshot · K switches Kinect/simulator";
+            status += cardTracker.Current == null ? " · No card seen" : $" · Card {cardTracker.Current.Id + 1}{(cardTracker.IsVisible ? "" : " (hidden)")}";
+            if (state != State.Playing) status += " · P saves a screenshot · K switches Kinect/simulator";
             if (source is SimulatedDepthSource simulated)
             {
                 var props = SimulatedDepthSource.Props.Select((p, i) => $"{i + 1}: {p.name}{(simulated.IsPropOn(i) ? " (on)" : "")}");
-                status += "\nSimulated table. Keys " + string.Join(", ", props) + (steering == Steering.Hand ? " · mouse moves the hand" : "");
+                var cards = SimulatedDepthSource.Cards.Select((c, i) => $"{i + 1 + SimulatedDepthSource.Props.Length}: {c.name}{(simulated.CardOn == i ? " (on)" : "")}");
+                status += "\nSimulated table. Keys " + string.Join(", ", props.Concat(cards)) + (steering == Steering.Hand ? " · mouse moves the hand" : "");
             }
             if (sourceNote != null) status += "\n" + sourceNote;
             GUI.Label(new Rect(unit * 0.5f, height - unit * 4.5f, width - unit, unit * 4.2f), status, small);

@@ -49,6 +49,24 @@ namespace ShapesKinect.Core
         public Vector3? Hand;
         public float HandRadius = 0.05f;
 
+        /// <summary>A printed card lying on the table, or null: which one, where its middle is, and how far it's turned, in radians, clockwise seen from above.</summary>
+        public (int id, float x, float z, float turn)? Card;
+        /// <summary>The card's black square's side, in meters; the white margin around it is a quarter of that.</summary>
+        public float CardSize = CardLocator.PrintedSize;
+
+        /// <summary>
+        /// A color camera like the Kinect's, in its depth camera's space: 5 cm to the side, 1920 by
+        /// 1080, about 54 degrees top to bottom. With <paramref name="mirrored"/>, its picture is
+        /// flipped left to right, as the real Kinect's is.
+        /// </summary>
+        public static PinholeCamera ColorCamera(bool mirrored = false)
+        {
+            // Camera space has X toward the sensor's left, so the picture's right is -X.
+            var right = new Vector3(-1f, 0f, 0f);
+            return new PinholeCamera(new Vector3(-0.052f, 0f, 0f), mirrored ? -right : right, new Vector3(0f, -1f, 0f),
+                new Vector3(0f, 0f, 1f), 1060f, 1060f, 960f, 540f, 1920, 1080);
+        }
+
         private long frameNumber;
 
         /// <summary>The Kinect v2's depth camera, scaled to the image size.</summary>
@@ -120,6 +138,68 @@ namespace ShapesKinect.Core
                     frame.Points[py * width + px] = RoomToCamera(room);
                 }
             }
+        }
+
+        /// <summary>
+        /// Renders what <paramref name="camera"/> (in the sensor's camera space) sees, in grey,
+        /// into <paramref name="image"/>: the table a mid grey with some grain, the card on it
+        /// black and white, everything else darker.
+        /// </summary>
+        public void RenderColor(PinholeCamera camera, GrayImage image, Random random = null)
+        {
+            random = random ?? new Random();
+            var table = new Box(new Vector3(-TableWidth / 2, -TableHeight, TableNear),
+                new Vector3(TableWidth / 2, 0f, TableNear + TableDepth));
+            var origin = CameraToRoom(camera.Position);
+            for (var y = 0; y < image.Height; y++)
+            {
+                for (var x = 0; x < image.Width; x++)
+                {
+                    var pixel = image.ToColor(x, y);
+                    var ray = CameraToRoom(camera.Position + CardLocator.Ray(camera, pixel)) - origin;
+                    var shade = 70f;
+                    var t = HitBox(origin, ray, table);
+                    var hitObject = float.PositiveInfinity;
+                    foreach (var box in Objects) hitObject = Math.Min(hitObject, HitBox(origin, ray, box));
+                    if (Hand != null) hitObject = Math.Min(hitObject, HitSphere(origin, ray, Hand.Value, HandRadius));
+                    if (hitObject < t)
+                    {
+                        shade = 110f;
+                    }
+                    else if (!float.IsInfinity(t))
+                    {
+                        var p = origin + ray * t;
+                        shade = Math.Abs(p.Y) < 1e-3f ? CardOrTable(p.X, p.Z) : 90f;
+                    }
+                    shade += (float)(random.NextDouble() - 0.5) * 8f;
+                    image.Pixels[y * image.Width + x] = (byte)Math.Max(0, Math.Min(255, shade));
+                }
+            }
+            image.Number++;
+        }
+
+        /// <summary>The tabletop's shade at (x, z): the card if it's there, else wood-ish grain.</summary>
+        private float CardOrTable(float x, float z)
+        {
+            var grain = 140f + 12f * (float)Math.Sin(z * 90f + Math.Sin(x * 13f) * 2f);
+            if (Card == null) return grain;
+            var (id, cx, cz, turn) = Card.Value;
+            float dx = x - cx, dz = z - cz;
+            // Into the card's own terms: u to its right, w toward its printed top.
+            float cos = (float)Math.Cos(turn), sin = (float)Math.Sin(turn);
+            var u = dx * cos - dz * sin;
+            var w = dx * sin + dz * cos;
+            var half = CardSize / 2;
+            var margin = CardSize / 4;
+            if (Math.Abs(u) > half + margin || Math.Abs(w) > half + margin) return grain;
+            if (Math.Abs(u) > half || Math.Abs(w) > half) return 225f;
+            var cell = CardSize / CardCodes.Cells;
+            var column = (int)Math.Floor((u + half) / cell);
+            var row = (int)Math.Floor((half - w) / cell);
+            column = Math.Min(CardCodes.Cells - 1, column);
+            row = Math.Min(CardCodes.Cells - 1, row);
+            var border = row == 0 || column == 0 || row == CardCodes.Cells - 1 || column == CardCodes.Cells - 1;
+            return border || CardCodes.IsBlack(id, row - 1, column - 1) ? 25f : 225f;
         }
 
         /// <summary>Distance, in depth units along <paramref name="dir"/>, to the nearest thing it hits.</summary>
