@@ -34,7 +34,26 @@ namespace ShapesKinect.Game
 
         public static bool Confirm =>
             Pressed(Keyboard.current?.spaceKey) || Pressed(Keyboard.current?.enterKey) || Pressed(Gamepad.current?.buttonSouth);
-        public static bool LookAgain => Pressed(Keyboard.current?.rKey) || Pressed(Gamepad.current?.buttonNorth);
+        /// <summary>Back to picking a surface.</summary>
+        public static bool PickAgain => Pressed(Keyboard.current?.rKey) || Pressed(Gamepad.current?.buttonNorth);
+        /// <summary>The left mouse button went down.</summary>
+        public static bool Click => Pressed(Mouse.current?.leftButton);
+        /// <summary>Q/E or the shoulder buttons, held: -1 turns left, 1 turns right.</summary>
+        public static float Turn
+        {
+            get
+            {
+                var turn = 0f;
+                if (Keyboard.current?.qKey.isPressed == true || Gamepad.current?.leftShoulder.isPressed == true) turn -= 1f;
+                if (Keyboard.current?.eKey.isPressed == true || Gamepad.current?.rightShoulder.isPressed == true) turn += 1f;
+                return turn;
+            }
+        }
+        /// <summary>+ or - (or the d-pad up and down) went down: 1 to grow, -1 to shrink, else 0.</summary>
+        public static int Resize =>
+            Pressed(Keyboard.current?.equalsKey) || Pressed(Keyboard.current?.numpadPlusKey) || Pressed(Gamepad.current?.dpad.up) ? 1
+            : Pressed(Keyboard.current?.minusKey) || Pressed(Keyboard.current?.numpadMinusKey) || Pressed(Gamepad.current?.dpad.down) ? -1
+            : 0;
         public static bool SwitchControl => Pressed(Keyboard.current?.tabKey) || Pressed(Gamepad.current?.buttonWest);
         public static bool SwitchSource => Pressed(Keyboard.current?.kKey);
         public static bool SwitchView => Pressed(Keyboard.current?.cKey);
@@ -66,7 +85,19 @@ namespace ShapesKinect.Game
 
         public static bool Confirm =>
             Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.JoystickButton0);
-        public static bool LookAgain => Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton3);
+        /// <summary>Back to picking a surface.</summary>
+        public static bool PickAgain => Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton3);
+        /// <summary>The left mouse button went down.</summary>
+        public static bool Click => Input.GetMouseButtonDown(0);
+        /// <summary>Q/E or the shoulder buttons, held: -1 turns left, 1 turns right.</summary>
+        public static float Turn =>
+            (Input.GetKey(KeyCode.E) || Input.GetKey(KeyCode.JoystickButton5) ? 1f : 0f) -
+            (Input.GetKey(KeyCode.Q) || Input.GetKey(KeyCode.JoystickButton4) ? 1f : 0f);
+        /// <summary>+ or - went down: 1 to grow, -1 to shrink, else 0.</summary>
+        public static int Resize =>
+            Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.KeypadPlus) ? 1
+            : Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.KeypadMinus) ? -1
+            : 0;
         public static bool SwitchControl => Input.GetKeyDown(KeyCode.Tab) || Input.GetKeyDown(KeyCode.JoystickButton2);
         public static bool SwitchSource => Input.GetKeyDown(KeyCode.K);
         public static bool SwitchView => Input.GetKeyDown(KeyCode.C);

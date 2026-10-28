@@ -19,12 +19,19 @@ namespace ShapesKinect.Core
         /// A frame on the plane through <paramref name="origin"/> with normal <paramref name="up"/>,
         /// both in camera space, facing the way the camera looks.
         /// </summary>
-        public TableFrame(Vector3 origin, Vector3 up)
+        public TableFrame(Vector3 origin, Vector3 up) : this(origin, up, new Vector3(0f, 0f, 1f))
+        {
+        }
+
+        /// <summary>
+        /// A frame on the plane through <paramref name="origin"/> with normal <paramref name="up"/>,
+        /// both in camera space, with Z along <paramref name="look"/> flattened onto the plane.
+        /// </summary>
+        public TableFrame(Vector3 origin, Vector3 up, Vector3 look)
         {
             Origin = origin;
             Up = Vector3.Normalize(up);
             // The camera looks along +Z; flattened onto the table, that's "away across the table".
-            var look = new Vector3(0f, 0f, 1f);
             var forward = look - Vector3.Dot(look, Up) * Up;
             if (forward.LengthSquared() < 1e-6f) forward = new Vector3(0f, 1f, 0f) - Vector3.Dot(new Vector3(0f, 1f, 0f), Up) * Up;
             Forward = Vector3.Normalize(forward);

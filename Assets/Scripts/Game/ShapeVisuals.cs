@@ -47,25 +47,24 @@ namespace ShapesKinect.Game
         }
 
         /// <summary>
-        /// Draws <paramref name="round"/> on the surface, whose height at (x, z) is
-        /// <paramref name="ground"/>, and a marker on it under the steering hand if there is one.
+        /// Draws <paramref name="round"/>, and a marker on the table under the steering hand if
+        /// there is one.
         /// </summary>
-        public void Show(GameRound round, Vector3? hand, System.Func<float, float, float> ground)
+        public void Show(GameRound round, Vector3? hand)
         {
             var rules = round.Rules;
             var r = rules.PlayerRadius;
-            var ballGround = ground(round.PlayerX, round.PlayerZ);
             ball.gameObject.SetActive(true);
-            ball.localPosition = new Vector3(round.PlayerX, ballGround + r, round.PlayerZ);
+            ball.localPosition = new Vector3(round.PlayerX, r, round.PlayerZ);
             ball.localScale = Vector3.one * r;
             ballShadow.gameObject.SetActive(true);
-            ballShadow.localPosition = new Vector3(round.PlayerX, ballGround + 0.002f, round.PlayerZ);
+            ballShadow.localPosition = new Vector3(round.PlayerX, 0.002f, round.PlayerZ);
             ballShadow.localScale = new Vector3(r * 1.1f, 1f, r * 1.1f);
 
             handMarker.gameObject.SetActive(hand != null);
             if (hand != null)
             {
-                handMarker.localPosition = new Vector3(hand.Value.x, ground(hand.Value.x, hand.Value.z) + 0.004f, hand.Value.z);
+                handMarker.localPosition = new Vector3(hand.Value.x, 0.004f, hand.Value.z);
                 handMarker.localScale = new Vector3(0.025f, 1f, 0.025f);
             }
 
@@ -85,11 +84,10 @@ namespace ShapesKinect.Game
                 // The shape worth points pulses so it stands out.
                 var pulse = shape.Type == round.Target ? 1f + 0.15f * Mathf.Sin(time * 8f) : 1f;
                 var size = rules.ShapeRadius * pulse * SizeFor(shape.Type);
-                var shapeGround = ground(shape.X, shape.Z);
-                pair.shape.localPosition = new Vector3(shape.X, shapeGround + rules.ShapeRadius + 0.008f + bob, shape.Z);
+                pair.shape.localPosition = new Vector3(shape.X, rules.ShapeRadius + 0.008f + bob, shape.Z);
                 pair.shape.localRotation = Quaternion.Euler(0f, time * 70f + phase * 30f, 0f);
                 pair.shape.localScale = Vector3.one * size;
-                pair.shadow.localPosition = new Vector3(shape.X, shapeGround + 0.002f, shape.Z);
+                pair.shadow.localPosition = new Vector3(shape.X, 0.002f, shape.Z);
                 pair.shadow.localScale = new Vector3(rules.ShapeRadius, 1f, rules.ShapeRadius);
             }
             var gone = new List<int>();
