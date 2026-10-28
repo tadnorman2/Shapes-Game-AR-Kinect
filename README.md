@@ -1,8 +1,8 @@
 # Shapes Game AR (Kinect)
 
-A tabletop take on the Shapes game for PC, using a Kinect v2 as a depth camera. The Kinect
-watches a real table from its edge; the game finds the table, and you roll a ball around on it to
-collect shapes. Anything real you put on the table, like a cup, a book or a box, becomes an
+A tabletop take on the Shapes game for PC, using a Kinect v2 as a depth camera. Point the Kinect
+at a table, a desk or any clear surface, and the arena appears on it by itself; roll a ball around
+on it to collect shapes. Anything real you put down, like a cup, a book or a box, becomes an
 obstacle the ball has to go around, live.
 
 It grew out of [Shapes-Game-AR](https://github.com/tadnorman2/Shapes-Game-AR), an Android ARCore
@@ -11,24 +11,26 @@ directly, so this version can.
 
 ## How a round plays
 
-1. Point the Kinect across the table, clear the table, and press **Space** (or **A** on a
-   gamepad). The game finds the table and outlines it in blue.
-2. Press **Space** to start a three-minute round.
+1. Point the Kinect at a table or other surface. A blue outline appears on it within a second:
+   that's the arena. It follows if you move the Kinect, so aim until it covers what you want.
+2. Press **Space** (or **A** on a gamepad) to start a three-minute round. The arena stays put
+   during the round.
 3. Steer the ball with the **left stick, WASD or arrow keys**, or press **Tab** (gamepad **X**)
-   for **hand control**: hold a hand 15-60 cm above the table and the ball rolls toward the spot
+   for **hand control**: hold a hand 15-60 cm above the arena and the ball rolls toward the spot
    under it.
 4. For the first 15 seconds every shape is worth **+10**. Then the game calls out one shape at a
    time ("Collect: ▲ Triangle"), and the called shape pulses. Only it scores +10; any other costs
    5. A new shape is called every 20 seconds.
-5. Put things on the table at any time: they get a red ring around their base, block the ball,
-   and shapes under them disappear. Only things touching the table count (1.5-15 cm up), so your
-   hand and arm above it don't get in the way.
+5. Put things down during a round: they get a red ring around their base, block the ball, and
+   shapes under them disappear. Only things touching the surface count (1.5-15 cm up), so your
+   hand and arm above it don't get in the way. Things already there when the round starts are
+   holes in the arena.
 
-**R** (gamepad **Y**) finds the table again, e.g. after moving the Kinect. **K** switches between
-the Kinect and the simulated table. The screen shows the Kinect's color camera like a
+**R** (gamepad **Y**) makes the game look at the surface afresh. **K** switches between the
+Kinect and the simulated table. The screen shows the Kinect's color camera like a
 normal video, with the ball, shapes and outlines drawn on top, lined up with the real table: the
 game works out exactly where the color camera is and how its lens sees from the Kinect's own
-calibration. **C** switches to the depth view (a 3D surface of what the depth camera sees: table
+calibration. **C** switches to the depth view (a 3D surface of what the depth camera sees: arena
 grey, objects orange, hands purple), which is handy for seeing what the game counts as an object.
 
 The game writes a line to Unity's log every two seconds saying how it's running (lines start
@@ -96,35 +98,35 @@ Device: None**), which scans USB for phones.
 
 ### Placing the Kinect
 
-- At one edge of the table, tilted down across it, so the whole tabletop is in view.
-- At least 50 cm from the nearest part of the table (the Kinect can't see closer), and ideally
-  within 2 m of the far edge.
-- The game screen shows the Kinect's view live before you press Space, which helps aim it.
-- High enough to look down on the table: 50-80 cm above it, tilted 30-60 degrees down, works
-  best. From just above the table, looking across it, the Kinect sees only a thin strip of the
-  tabletop, and the game says so when it finds the table.
-- Anywhere from looking almost straight across the table to looking straight down at it works.
-  The table is taken to be the highest level surface in view that's at least 30 x 30 cm, so
-  keep higher things (shelves, a bed, a chair seat) out of the picture or below the table.
+There's no set way to place it: anywhere it sees a good piece of table works, from looking almost
+straight across it to looking straight down. Things to know:
 
-Each time you press Space to find the table, the game saves what the Kinect saw (a `.depth` file
-and a `.jpg` photo) to a `Captures` folder, keeping the last ten, and writes what it found to the
-log. On Windows the folder is
-`%USERPROFILE%\AppData\LocalLow\DefaultCompany\<project folder name>\Captures`; the game
-shows it on screen when it can't find the table. Those files are what's needed to see why the
-table wasn't found. Press **P** (or **F12**) at any time to save them along with a screenshot of
-the game; a `.txt` file beside them records where the game thinks the color camera and the table
-are, so the overlay can be checked against the photo.
+- It can't see closer than 50 cm, and its depth gets rougher past 2 m.
+- The arena is the highest surface in view that's at least about 30 x 30 cm and faces up, so the
+  floor past a table is skipped. Keep higher flat things (a shelf, a bed) out of the picture, or
+  the arena may go there.
+- The game plays on the surface exactly as the Kinect measures it, without assuming it's flat.
+  From low down, the Kinect reads a flat table as sloping up at the back; the ball and shapes
+  follow that slope, which keeps them lined up with the real table in the picture.
+- Looking down more steeply gives a bigger arena and steadier object detection.
+
+Press **P** (or **F12**) at any time to save what the Kinect sees (a `.depth` file and a `.jpg`
+photo) and a screenshot to a `Captures` folder, keeping the last ten. A `.txt` file beside them
+records where the game thinks the color camera and the arena are, so the overlay can be checked
+against the photo. On Windows the folder is
+`%USERPROFILE%\AppData\LocalLow\DefaultCompany\<project folder name>\Captures`, and the game
+shows it on screen.
 
 ## How it's built
 
 - **`Assets/Scripts/Core`**: everything that isn't drawing, in plain C# with no Unity dependency:
-  - `TableFinder` and `TableSurface` find the table: they work out which way is up from the
-    direction most flat patches in the picture face (helped by the Kinect's tilt sensor), sort
-    those patches by height, and take the highest level surface big enough to play on (so the
-    floor is skipped, and walls never count), then the biggest connected piece of it on a 2 cm
-    grid.
-  - `ObstacleMap` keeps the live map of things on the table; `TableTracker` ties it together.
+  - `SurfaceTracker` finds the arena, live: it works out which way is up from the direction most
+    flat patches in the picture face (`UpFinder`, helped by the Kinect's tilt sensor), grows
+    surfaces across the depth picture through pixels that face up, without jumps in depth, and
+    takes the highest one big enough to play on, laid on a 2 cm grid with its measured heights
+    (`SurfaceMap`). Walls and the sides of things are too steep to join in, so a table's edge
+    stops it and objects are holes. During a round it holds the arena still and keeps
+    `ObstacleMap`, the live map of things put down on it.
   - `GameRound` holds the rules, ported from the Android prototype; `HandSteering` does hand
     control.
   - `SimulatedTable` renders Kinect-like depth of a table scene, for tests and for playing

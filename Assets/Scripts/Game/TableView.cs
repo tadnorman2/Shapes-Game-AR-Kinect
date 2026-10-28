@@ -32,10 +32,10 @@ namespace ShapesKinect.Game
 
         /// <summary>
         /// Rebuilds the surface from <paramref name="frame"/>. Once <paramref name="tracker"/> has
-        /// found the table, the view is in table coordinates and colored by height; before that,
-        /// it's in the Kinect's own view and shaded by distance.
+        /// an arena, the view is in its level coordinates and colored by height above the arena;
+        /// before that, it's in the Kinect's own view and shaded by distance.
         /// </summary>
-        public void Show(DepthFrame frame, TableTracker tracker)
+        public void Show(DepthFrame frame, SurfaceTracker tracker)
         {
             // 256 columns looks smooth and is still quick to rebuild every frame.
             var step = Mathf.Max(1, frame.Width / 256);
@@ -51,7 +51,8 @@ namespace ShapesKinect.Game
                 mesh.Clear();
             }
 
-            var surface = tracker.IsCalibrated ? tracker.Surface : null;
+            var level = tracker.Frame;
+            var surface = tracker.Map;
             for (var row = 0; row < rows; row++)
             {
                 for (var column = 0; column < columns; column++)
@@ -65,18 +66,17 @@ namespace ShapesKinect.Game
                         vertices[i] = Vector3.zero;
                         continue;
                     }
-                    if (surface != null)
+                    if (level != null)
                     {
-                        var t = surface.Frame.ToTable(p);
+                        var t = level.ToTable(p);
                         vertices[i] = new Vector3(t.X, t.Y, t.Z);
-                        colors[i] = ColorFor(t, surface);
+                        colors[i] = surface != null ? ColorFor(t, surface, tracker.Obstacles) : Shade(p.Z);
                     }
                     else
                     {
                         // Camera space has X toward the sensor's left; flip it so the view isn't mirrored.
                         vertices[i] = new Vector3(-p.X, p.Y, p.Z);
-                        var shade = (byte)Mathf.Clamp(230 - p.Z * 50f, 60, 230);
-                        colors[i] = new Color32(shade, shade, (byte)Mathf.Min(255, shade + 20), 255);
+                        colors[i] = Shade(p.Z);
                     }
                 }
             }
@@ -119,13 +119,20 @@ namespace ShapesKinect.Game
             mesh.RecalculateBounds();
         }
 
-        private static Color32 ColorFor(System.Numerics.Vector3 t, TableSurface surface)
+        /// <summary>Lighter nearer, for before there's an arena.</summary>
+        private static Color32 Shade(float depth)
         {
-            var onTable = surface.Contains(t.X, t.Z);
-            if (onTable && t.Y > HandSteering.MinHandHeight) return HandColor;
-            if (onTable && t.Y >= ObstacleMap.MinHeight) return ObjectColor;
-            if (onTable && t.Y > -0.02f) return TableColor;
-            return SurroundColor;
+            var shade = (byte)Mathf.Clamp(230 - depth * 50f, 60, 230);
+            return new Color32(shade, shade, (byte)Mathf.Min(255, shade + 20), 255);
+        }
+
+        private static Color32 ColorFor(System.Numerics.Vector3 t, SurfaceMap surface, ObstacleMap obstacles)
+        {
+            if (!surface.Contains(t.X, t.Z)) return SurroundColor;
+            var above = t.Y - surface.HeightAt(t.X, t.Z);
+            if (above > HandSteering.MinHandHeight) return HandColor;
+            if (obstacles != null ? obstacles.IsBlocked(t.X, t.Z) : above >= ObstacleMap.MinHeight) return ObjectColor;
+            return TableColor;
         }
     }
 }

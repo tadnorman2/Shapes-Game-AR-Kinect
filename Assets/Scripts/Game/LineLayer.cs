@@ -4,7 +4,7 @@ using UnityEngine;
 namespace ShapesKinect.Game
 {
     /// <summary>
-    /// Thin glowing lines lying flat on the table, like the table's edge or the rings around
+    /// Thin glowing lines lying on the play surface, like the arena's edge or the rings around
     /// objects on it: a soft wide glow with a bright thin core.
     /// </summary>
     public sealed class LineLayer : MonoBehaviour
@@ -16,7 +16,7 @@ namespace ShapesKinect.Game
         /// <summary>Width in meters and opacity of each pass of a line: glow first, then core.</summary>
         private static readonly (float width, float alpha)[] Layers = { (0.016f, 0.3f), (0.005f, 0.95f) };
 
-        /// <summary>Just above the table, so lines don't flicker into it.</summary>
+        /// <summary>Just above the surface, so lines don't flicker into it.</summary>
         private const float Lift = 0.003f;
 
         private void Awake()
@@ -46,7 +46,8 @@ namespace ShapesKinect.Game
             segments.Add(z2);
         }
 
-        public void Rebuild()
+        /// <summary>Rebuilds the lines, lying at <paramref name="heightAt"/>(x, z), or at height 0 without it.</summary>
+        public void Rebuild(System.Func<float, float, float> heightAt = null)
         {
             var vertices = new List<Vector3>();
             var colors = new List<Color>();
@@ -69,7 +70,7 @@ namespace ShapesKinect.Game
                     var start = vertices.Count;
                     foreach (var corner in new[] { a - side, b - side, b + side, a + side })
                     {
-                        vertices.Add(new Vector3(corner.x, Lift, corner.y));
+                        vertices.Add(new Vector3(corner.x, (heightAt?.Invoke(corner.x, corner.y) ?? 0f) + Lift, corner.y));
                         colors.Add(layerColor);
                     }
                     triangles.AddRange(new[] { start, start + 1, start + 2, start, start + 2, start + 3 });

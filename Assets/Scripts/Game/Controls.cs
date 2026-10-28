@@ -34,7 +34,7 @@ namespace ShapesKinect.Game
 
         public static bool Confirm =>
             Pressed(Keyboard.current?.spaceKey) || Pressed(Keyboard.current?.enterKey) || Pressed(Gamepad.current?.buttonSouth);
-        public static bool FindTableAgain => Pressed(Keyboard.current?.rKey) || Pressed(Gamepad.current?.buttonNorth);
+        public static bool LookAgain => Pressed(Keyboard.current?.rKey) || Pressed(Gamepad.current?.buttonNorth);
         public static bool SwitchControl => Pressed(Keyboard.current?.tabKey) || Pressed(Gamepad.current?.buttonWest);
         public static bool SwitchSource => Pressed(Keyboard.current?.kKey);
         public static bool SwitchView => Pressed(Keyboard.current?.cKey);
@@ -66,7 +66,7 @@ namespace ShapesKinect.Game
 
         public static bool Confirm =>
             Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.JoystickButton0);
-        public static bool FindTableAgain => Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton3);
+        public static bool LookAgain => Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton3);
         public static bool SwitchControl => Input.GetKeyDown(KeyCode.Tab) || Input.GetKeyDown(KeyCode.JoystickButton2);
         public static bool SwitchSource => Input.GetKeyDown(KeyCode.K);
         public static bool SwitchView => Input.GetKeyDown(KeyCode.C);

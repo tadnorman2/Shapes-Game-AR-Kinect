@@ -11,14 +11,15 @@ namespace ShapesKinect.Game
     /// Runs the whole game. Builds its own scene when Play is pressed, so the project needs no
     /// scene files: open it in Unity, press Play.
     ///
-    /// The flow: point the Kinect at a clear table and press Space (or A) to find it; then press
-    /// Space to start a three-minute round, steering the ball with a stick or keys, or with a hand
-    /// held over the table (Tab switches). Real objects put on the table block the ball. Without
-    /// a Kinect, a simulated table stands in, with number keys to put objects on it.
+    /// The flow: point the Kinect at a table, or any surface, and the arena appears on it by
+    /// itself, following as the Kinect is moved; press Space (or A) to start a three-minute
+    /// round, steering the ball with a stick or keys, or with a hand held over the surface (Tab
+    /// switches). Real objects put down block the ball. Without a Kinect, a simulated table stands
+    /// in, with number keys to put objects on it.
     /// </summary>
     public sealed class GameManager : MonoBehaviour
     {
-        private enum State { FindTable, Ready, Playing, Results }
+        private enum State { Ready, Playing, Results }
         private enum Steering { Stick, Hand }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -42,7 +43,7 @@ namespace ShapesKinect.Game
         private int framesThisSecond;
         private float rateTimer;
 
-        private readonly TableTracker tracker = new TableTracker();
+        private readonly SurfaceTracker tracker = new SurfaceTracker();
         private TableView tableView;
         private BackgroundView background;
         private LineLayer edgeLines;
@@ -50,13 +51,12 @@ namespace ShapesKinect.Game
         private ShapeVisuals visuals;
         private Camera viewCamera;
         private int drawnObstacleVersion = -1;
+        private int drawnArenaVersion = -1;
 
-        private State state = State.FindTable;
+        private State state = State.Ready;
         private Steering steering = Steering.Stick;
         private GameRound round;
         private string message;
-        /// <summary>Why the found table probably isn't measured well, shown until it's found again.</summary>
-        private string setupWarning;
         private float messageUntil;
         private string popupText;
         private Color popupColor;
@@ -80,7 +80,7 @@ namespace ShapesKinect.Game
         /// <summary>How often the game writes a line about how it's running to Unity's log.</summary>
         private const float LogInterval = 2f;
 
-        /// <summary>Where the simulated hand is held, in table coordinates: 30 cm above the table.</summary>
+        /// <summary>Where the simulated hand is held: 30 cm above the arena.</summary>
         private const float SimulatedHandHeight = 0.3f;
 
         /// <summary>
@@ -163,11 +163,12 @@ namespace ShapesKinect.Game
             waitingForKinectSince = -1f;
             lastFrameNumber = -1;
             Debug.Log($"[Shapes] Using {newSource.Name}.");
-            // A different camera means a different view of the table: find it again.
-            tracker.Reset();
+            // A different camera means a different view: start the arena over.
             EndRound();
-            state = State.FindTable;
+            tracker.Reset();
+            state = State.Ready;
             drawnObstacleVersion = -1;
+            drawnArenaVersion = -1;
             edgeLines.Clear();
             objectLines.Clear();
         }
@@ -215,8 +216,8 @@ namespace ShapesKinect.Game
                 lastFrameNumber = frame.Number;
                 framesThisSecond++;
                 watch.Restart();
-                Watchdog.Mark("tracking objects on the table");
-                if (tracker.IsCalibrated) tracker.Update(frame, frame.Width > 300 ? 2 : 1);
+                Watchdog.Mark("following the surface");
+                tracker.Update(frame, frame.Width > 300 ? 2 : 1);
                 slowestTracking = System.Math.Max(slowestTracking, watch.Elapsed.TotalMilliseconds);
             }
             watch.Restart();
@@ -233,12 +234,20 @@ namespace ShapesKinect.Game
                 rateTimer = 0f;
             }
 
-            if (tracker.IsCalibrated && tracker.Obstacles.Version != drawnObstacleVersion)
+            if (tracker.Version != drawnArenaVersion)
             {
-                drawnObstacleVersion = tracker.Obstacles.Version;
+                drawnArenaVersion = tracker.Version;
+                edgeLines.Begin();
+                tracker.Map?.TraceEdge(edgeLines.Add);
+                edgeLines.Rebuild(GroundAt);
+            }
+            var obstacleVersion = tracker.Obstacles?.Version ?? -1;
+            if (obstacleVersion != drawnObstacleVersion)
+            {
+                drawnObstacleVersion = obstacleVersion;
                 objectLines.Begin();
-                tracker.Obstacles.TraceOutlines(objectLines.Add);
-                objectLines.Rebuild();
+                tracker.Obstacles?.TraceOutlines(objectLines.Add);
+                objectLines.Rebuild(GroundAt);
             }
 
             var hand = SteeringHand();
@@ -256,7 +265,7 @@ namespace ShapesKinect.Game
                 }
                 foreach (var e in round.Update(Time.deltaTime, move.x, move.y)) OnRoundEvent(e);
             }
-            if (round != null) visuals.Show(round, steering == Steering.Hand ? hand : null);
+            if (round != null) visuals.Show(round, steering == Steering.Hand ? hand : null, GroundAt);
             // Until the next Update, Unity itself has the main thread: rendering, the editor, other scripts.
             Watchdog.Mark("Unity, between game updates (rendering, editor)");
         }
@@ -289,98 +298,28 @@ namespace ShapesKinect.Game
             {
                 steering = steering == Steering.Stick ? Steering.Hand : Steering.Stick;
                 Say(steering == Steering.Hand
-                    ? "Hand control: hold a hand 15-60 cm above the table and the ball follows it."
+                    ? "Hand control: hold a hand 15-60 cm above the arena and the ball follows it."
                     : "Stick control: left stick, WASD or arrow keys.");
             }
 
-            if (Controls.FindTableAgain && state != State.Playing)
+            if (Controls.LookAgain && state != State.Playing)
             {
                 EndRound();
-                state = State.FindTable;
-                Say("Clear the table, then press Space (or A) to find it again.");
+                tracker.Reset();
+                state = State.Ready;
+                Say("Looking at the surface afresh.");
                 return;
             }
 
-            if (!Controls.Confirm) return;
-            switch (state)
-            {
-                case State.FindTable:
-                    FindTable();
-                    break;
-                case State.Ready:
-                case State.Results:
-                    StartRound();
-                    break;
-            }
-        }
-
-        private void FindTable()
-        {
-            var frame = source.Latest;
-            if (frame == null)
-            {
-                Say("Waiting for the first picture from the Kinect.");
-                return;
-            }
-            setupWarning = null;
-            var report = new List<string>();
-            var found = tracker.Calibrate(frame, report);
-            Debug.Log($"[Shapes] Looking for the table: {string.Join("; ", report)}.");
-            var saved = SaveCapture(frame);
-            if (!found)
-            {
-                Say("Couldn't find a table. Make sure most of it is in view, it's clear, and the Kinect is at least 50 cm from it." +
-                    (saved != null ? $" What the Kinect saw is saved in {saved}." : ""));
-                return;
-            }
-            edgeLines.Begin();
-            tracker.Surface.TraceEdge(edgeLines.Add);
-            edgeLines.Rebuild();
-            drawnObstacleVersion = -1;
-            state = State.Ready;
-            var (width, depth) = tracker.Surface.Extent;
-            var height = tracker.Surface.Frame.CameraPosition.Y;
-            Debug.Log($"[Shapes] Found the table: {tracker.Surface.Area:0.00} m2, about {width:0.00} x {depth:0.00} m, {tracker.Surface.Frame}.");
-            Say($"Found the table: {tracker.Surface.Area:0.00} square meters, about {width * 100:0} cm across and {depth * 100:0} cm deep.");
-            setupWarning = CheckSetup(frame);
-            if (setupWarning != null) Debug.LogWarning("[Shapes] " + setupWarning);
+            if (Controls.Confirm && state != State.Playing) StartRound();
         }
 
         /// <summary>
-        /// Whether the Kinect sees the table steeply enough to measure it, or what's wrong if not.
-        /// Looking across a table at a shallow angle, the Kinect's depth of the far part comes out
-        /// wrong (it reads as raised), so the table's plane comes out tilted and the arena with it.
-        /// The Kinect's own tilt sensor shows that tilt up.
-        /// </summary>
-        private string CheckSetup(DepthFrame frame)
-        {
-            var table = tracker.Surface.Frame;
-            var camera = table.CameraPosition;
-            var lookAngle = Mathf.Asin(Mathf.Clamp01(camera.Y / camera.Length())) * Mathf.Rad2Deg;
-            var tilt = frame.UpHint is NVector3 hint && hint.LengthSquared() > 0.5f
-                ? Mathf.Acos(Mathf.Clamp(NVector3.Dot(NVector3.Normalize(hint), table.Up), -1f, 1f)) * Mathf.Rad2Deg
-                : 0f;
-            if (lookAngle >= MinLookAngle && tilt <= MaxTilt) return null;
-            var why = lookAngle < MinLookAngle
-                ? $"The Kinect looks across the table at only {lookAngle:0} degrees, from {camera.Y * 100:0} cm above it"
-                : "The Kinect sees the table at a shallow angle";
-            var effect = tilt > MaxTilt
-                ? $", so it measures the table tilted {tilt:0} degrees against its own tilt sensor and the arena won't line up with it."
-                : ", too shallow to measure the far part of it well.";
-            return why + effect + $" Raise the Kinect (50 cm or more above the table) and tilt it down so it looks at the table at {MinLookAngle:0} degrees or steeper, then press R.";
-        }
-
-        /// <summary>Below this many degrees between the Kinect's view of the table and the tabletop, its depth of the table goes wrong.</summary>
-        private const float MinLookAngle = 30f;
-        /// <summary>A table measured tilted more than this many degrees against the Kinect's tilt sensor is suspect.</summary>
-        private const float MaxTilt = 6f;
-
-        /// <summary>
-        /// Saves the depth picture the table was looked for in, and the color picture, to the
-        /// Captures folder, keeping the last few. They show what went wrong when the table isn't
-        /// found properly. With <paramref name="screenshot"/>, also what's on screen. A text file
-        /// beside them has the color camera and the table as the game sees them, so the overlay
-        /// can be redrawn on the photo. Returns the folder, or null if saving failed.
+        /// Saves the depth picture and the color picture to the Captures folder, keeping the last
+        /// few, to look into how the game saw things. With <paramref name="screenshot"/>, also
+        /// what's on screen. A text file beside them has the color camera and the arena as the
+        /// game sees them, so the overlay can be redrawn on the photo. Returns the folder, or null
+        /// if saving failed.
         /// </summary>
         private string SaveCapture(DepthFrame frame, bool screenshot = false)
         {
@@ -419,16 +358,19 @@ namespace ShapesKinect.Game
             text.AppendLine(c == null
                 ? "color camera: none"
                 : System.FormattableString.Invariant($"color camera: position {c.Position} right {c.Right} down {c.Down} forward {c.Forward} fx {c.Fx} fy {c.Fy} cx {c.Cx} cy {c.Cy} skew {c.Skew} size {c.Width}x{c.Height}"));
-            if (tracker.IsCalibrated)
+            var map = tracker.Map;
+            if (map != null)
             {
-                var t = tracker.Surface.Frame;
-                text.AppendLine(System.FormattableString.Invariant($"table: origin {t.Origin} up {t.Up} right {t.Right} forward {t.Forward} area {tracker.Surface.Area}"));
-                tracker.Surface.TraceEdge((x1, z1, x2, z2) =>
-                    text.AppendLine(System.FormattableString.Invariant($"edge {x1} {z1} {x2} {z2}")));
+                var t = map.Frame;
+                text.AppendLine(System.FormattableString.Invariant($"level frame: origin {t.Origin} up {t.Up} right {t.Right} forward {t.Forward}"));
+                text.AppendLine(System.FormattableString.Invariant($"arena: area {map.Area} mean height {map.MeanHeight}"));
+                // Each piece of the edge as two points on the surface, in camera space.
+                map.TraceEdge((x1, z1, x2, z2) =>
+                    text.AppendLine(System.FormattableString.Invariant($"edge {t.ToCamera(map.OnSurface(x1, z1))} {t.ToCamera(map.OnSurface(x2, z2))}")));
             }
             else
             {
-                text.AppendLine("table: not found");
+                text.AppendLine("arena: none");
             }
             text.AppendLine($"screen {Screen.width}x{Screen.height}, view {viewCamera.rect}");
             return text.ToString();
@@ -485,11 +427,11 @@ namespace ShapesKinect.Game
             viewCamera.clearFlags = CameraClearFlags.SolidColor;
             // The Kinect's depth camera sees about 60 degrees top to bottom.
             viewCamera.fieldOfView = 60f;
-            if (tracker.IsCalibrated)
+            if (tracker.Frame != null)
             {
-                var table = tracker.Surface.Frame;
-                viewCamera.transform.SetPositionAndRotation(ToUnity(table.CameraPosition),
-                    Quaternion.LookRotation(ToUnity(table.CameraLook), ToUnity(table.CameraUp)));
+                var level = tracker.Frame;
+                viewCamera.transform.SetPositionAndRotation(ToUnity(level.CameraPosition),
+                    Quaternion.LookRotation(ToUnity(level.CameraLook), ToUnity(level.CameraUp)));
             }
             else
             {
@@ -500,14 +442,17 @@ namespace ShapesKinect.Game
         }
 
         /// <summary>
-        /// Converts a camera-space point to the game world: table coordinates once the table is
-        /// found, and before that the camera's own view, unmirrored, which is what the depth view shows.
+        /// Converts a camera-space point to the game world: level coordinates once the tracker has
+        /// them, and before that the camera's own view, unmirrored, which is what the depth view shows.
         /// </summary>
         private NVector3 ToView(NVector3 point) =>
-            tracker.IsCalibrated ? tracker.Surface.Frame.ToTable(point) : new NVector3(-point.X, point.Y, point.Z);
+            tracker.Frame != null ? tracker.Frame.ToTable(point) : new NVector3(-point.X, point.Y, point.Z);
 
         private NVector3 DirectionToView(NVector3 direction) =>
-            tracker.IsCalibrated ? tracker.Surface.Frame.DirectionToTable(direction) : new NVector3(-direction.X, direction.Y, direction.Z);
+            tracker.Frame != null ? tracker.Frame.DirectionToTable(direction) : new NVector3(-direction.X, direction.Y, direction.Z);
+
+        /// <summary>The arena's height at (x, z), for drawing things on it.</summary>
+        private float GroundAt(float x, float z) => tracker.Map?.HeightAt(x, z) ?? 0f;
 
         private static Vector3 ToUnity(NVector3 v) => new Vector3(v.X, v.Y, v.Z);
 
@@ -528,8 +473,16 @@ namespace ShapesKinect.Game
 
         private void StartRound()
         {
-            Debug.Log("[Shapes] Starting a round.");
-            round = new GameRound(tracker.PlayArea());
+            var map = tracker.Map;
+            if (map == null)
+            {
+                Say("No arena yet: point the Kinect at a table, or any clear surface, until a blue outline appears on it.");
+                return;
+            }
+            Debug.Log($"[Shapes] Starting a round on {map.Area:0.00} m2 of arena.");
+            tracker.Freeze();
+            visuals.Hide();
+            round = new GameRound(tracker.PlayArea(), startX: map.StartX, startZ: map.StartZ);
             state = State.Playing;
             newBest = false;
         }
@@ -538,6 +491,7 @@ namespace ShapesKinect.Game
         {
             round = null;
             visuals?.Hide();
+            tracker.Unfreeze();
         }
 
         private void OnRoundEvent(RoundEvent e)
@@ -562,12 +516,14 @@ namespace ShapesKinect.Game
                         PlayerPrefs.Save();
                     }
                     state = State.Results;
+                    // Back to following the surface, so the Kinect can be moved between rounds.
+                    tracker.Unfreeze();
                     break;
             }
         }
 
         /// <summary>
-        /// Turns the stick into a direction on the table relative to the view: up is away from the
+        /// Turns the stick into a direction on the arena relative to the view: up is away from the
         /// camera, right is to the screen's right.
         /// </summary>
         private Vector2 StickOnTable(Vector2 stick)
@@ -580,17 +536,22 @@ namespace ShapesKinect.Game
             return right * stick.x + flat * stick.y;
         }
 
-        /// <summary>The hand nearest the ball that's held in steering position over the table, in table coordinates.</summary>
+        /// <summary>
+        /// The hand nearest the ball that's held in steering position over the arena, in level
+        /// coordinates, with its height being how far it is above the arena.
+        /// </summary>
         private Vector3? SteeringHand()
         {
-            if (!tracker.IsCalibrated) return null;
+            var map = tracker.Map;
+            if (map == null) return null;
             hands.Clear();
             source.GetHands(hands);
             Vector3? best = null;
             var bestDistance = float.MaxValue;
             foreach (var cameraHand in hands)
             {
-                var t = tracker.ToTable(cameraHand);
+                var t = tracker.ToLevel(cameraHand);
+                t.Y -= map.HeightAt(t.X, t.Z);
                 if (!HandSteering.IsSteering(t)) continue;
                 var distance = round == null ? 0f : new Vector2(t.X - round.PlayerX, t.Z - round.PlayerZ).magnitude;
                 if (distance < bestDistance)
@@ -602,17 +563,18 @@ namespace ShapesKinect.Game
             return best;
         }
 
-        /// <summary>For the simulator: where the mouse points, as a hand held over the table, in camera space.</summary>
+        /// <summary>For the simulator: where the mouse points, as a hand held over the arena, in camera space.</summary>
         private NVector3? PointerHand()
         {
             var pointer = Controls.Pointer;
-            if (!tracker.IsCalibrated || pointer == null) return null;
+            var map = tracker.Map;
+            if (map == null || pointer == null) return null;
             var ray = viewCamera.ScreenPointToRay(pointer.Value);
-            var plane = new UnityEngine.Plane(Vector3.up, new Vector3(0f, SimulatedHandHeight, 0f));
+            var plane = new UnityEngine.Plane(Vector3.up, new Vector3(0f, map.MeanHeight + SimulatedHandHeight, 0f));
             if (!plane.Raycast(ray, out var distance)) return null;
             var p = ray.GetPoint(distance);
-            if (!tracker.Surface.Contains(p.x, p.z)) return null;
-            return tracker.Surface.Frame.ToCamera(new NVector3(p.x, p.y, p.z));
+            if (!map.Contains(p.x, p.z)) return null;
+            return map.Frame.ToCamera(new NVector3(p.x, p.y, p.z));
         }
 
         private void Say(string text, float seconds = 4f)
@@ -676,7 +638,7 @@ namespace ShapesKinect.Game
                 }
                 if (steering == Steering.Hand && SteeringHand() == null)
                 {
-                    GUI.Label(new Rect(0, height - unit * 6f, width, unit * 2f), "Hold a hand 15-60 cm above the table to steer", medium);
+                    GUI.Label(new Rect(0, height - unit * 6f, width, unit * 2f), "Hold a hand 15-60 cm above the arena to steer", medium);
                 }
             }
             else
@@ -685,13 +647,13 @@ namespace ShapesKinect.Game
                 string body = null;
                 switch (state)
                 {
-                    case State.FindTable:
-                        title = "Find the table";
-                        body = "Point the Kinect across the table from its edge, clear the table, and press Space (or A on a gamepad).";
+                    case State.Ready when tracker.Map == null:
+                        title = "Point the Kinect at a table";
+                        body = "Aim it at a table, desk or any clear surface. The arena appears on it by itself.";
                         break;
                     case State.Ready:
                         title = "Ready";
-                        body = "Press Space (or A) to start a round. Put real things on the table and the ball has to go around them.";
+                        body = $"Press Space (or A) to play on the blue arena ({tracker.Map.Area:0.00} square meters). Move the Kinect and it follows. Put real things down and the ball has to go around them.";
                         break;
                     case State.Results:
                         title = "Time's up!";
@@ -703,12 +665,6 @@ namespace ShapesKinect.Game
                 GUI.Label(new Rect(width * 0.22f, height * 0.12f + unit * 3f, width * 0.56f, unit * 3.5f), body, medium);
             }
 
-            if (setupWarning != null && state == State.Ready)
-            {
-                GUI.Box(new Rect(width * 0.15f, height * 0.12f + unit * 7.5f, width * 0.7f, unit * 4.2f), GUIContent.none, panel);
-                GUI.Label(new Rect(width * 0.16f, height * 0.12f + unit * 7.6f, width * 0.68f, unit * 4f), setupWarning, medium);
-            }
-
             if (message != null && Time.unscaledTime < messageUntil)
             {
                 GUI.Box(new Rect(width * 0.15f, height * 0.72f, width * 0.7f, unit * 2.6f), GUIContent.none, panel);
@@ -717,7 +673,7 @@ namespace ShapesKinect.Game
 
             var status = $"{source.Name} · {depthRate:0} depth frames/s · {1000f * Time.smoothDeltaTime:0} ms per frame · " +
                 $"{(steering == Steering.Stick ? "Stick" : "Hand")} control (Tab) · {(showColor ? "Color" : "Depth")} view (C)";
-            if (state != State.Playing) status += " · R finds the table again · K switches Kinect/simulator";
+            if (state != State.Playing) status += " · R looks afresh · P saves a screenshot · K switches Kinect/simulator";
             if (source is SimulatedDepthSource simulated)
             {
                 var props = SimulatedDepthSource.Props.Select((p, i) => $"{i + 1}: {p.name}{(simulated.IsPropOn(i) ? " (on)" : "")}");
