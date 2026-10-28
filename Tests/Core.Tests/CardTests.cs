@@ -192,6 +192,29 @@ public class CardTests
             before = origin;
         }
     }
+    [Fact]
+    public void RoughTableDepthDoesntTiltTheArena()
+    {
+        // Like a real desk seen at a shallow angle: every depth reading about a centimeter out.
+        var room = new SimulatedTable { PitchDegrees = 22f, SensorPosition = new Vector3(0f, 0.35f, -0.1f), Card = (0, 0.05f, 0.75f, 0.2f) };
+        var camera = SimulatedTable.ColorCamera(true);
+        var tracker = new CardTracker();
+        var random = new Random(3);
+        var trueUp = room.RoomToCamera(Vector3.UnitY) - room.RoomToCamera(Vector3.Zero);
+        for (var i = 0; i < 20; i++)
+        {
+            var depth = room.Render(512, 424, random);
+            for (var k = 0; k < depth.Points.Length; k++)
+            {
+                if (DepthFrame.IsValid(depth.Points[k])) depth.Points[k] += new Vector3(0f, 0f, (float)Gauss(random) * 0.012f);
+            }
+            tracker.Update(Picture(room, camera, i), camera, depth, i / 30f);
+            var up = tracker.Current.Frame.Up;
+            Assert.True(Vector3.Dot(up, trueUp) > Math.Cos(Math.PI / 360), $"picture {i}: up {up} vs {trueUp}");
+        }
+        var middle = room.RoomToCamera(new Vector3(0.05f, 0f, 0.75f));
+        Assert.True(Vector3.Distance(tracker.Current.Frame.Origin, middle) < 0.005f);
+    }
 }
 
 public class BoardTests

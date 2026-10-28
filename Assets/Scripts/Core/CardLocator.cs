@@ -32,11 +32,12 @@ namespace ShapesKinect.Core
     }
 
     /// <summary>
-    /// Works out where a card seen in the color picture lies. The depth camera gives the plane
-    /// it lies on, from its readings on the table around it; the card's corners are where the color
-    /// camera's lines of sight through the corners seen meet that plane. That's steadier than the
-    /// picture alone, which has to judge the card's tilt from how squashed it looks, and is used
-    /// only when there's no depth there.
+    /// Works out where a card seen in the color picture lies. It lies on the table: level, by the
+    /// Kinect's tilt sensor, at the height the depth camera measures around the card (or, without
+    /// a tilt sensor, on the plane the depth around the card fits). The card's corners are where
+    /// the color camera's lines of sight through the corners seen meet that plane. That's steadier
+    /// than the picture alone, which has to judge the card's tilt from how squashed it looks, and
+    /// is used only when there's no depth there.
     /// </summary>
     public static class CardLocator
     {
@@ -56,7 +57,9 @@ namespace ShapesKinect.Core
         {
             var corners = new Vector3[4];
             var fromDepth = false;
-            var measuredPlane = depth == null ? null : DepthPlane(sighting, camera, depth, step);
+            var measuredPlane = depth == null ? null
+                : HasTilt(depth) ? LevelPlane(sighting, camera, depth, step, Vector3.Normalize(depth.UpHint.Value))
+                : DepthPlane(sighting, camera, depth, step);
             var plane = measuredPlane ?? lastPlane;
             if (plane != null)
             {
@@ -156,6 +159,29 @@ namespace ShapesKinect.Core
             var ray = Ray(camera, (corners[0] + corners[1] + corners[2] + corners[3]) / 4);
             var t = Vector3.Dot(median - camera.Position, camera.Forward) / Vector3.Dot(ray, camera.Forward);
             return camera.Position + ray * t;
+        }
+
+        private static bool HasTilt(DepthFrame depth) =>
+            depth.UpHint is Vector3 up && Math.Abs(up.Length() - 1f) < 0.1f;
+
+        /// <summary>
+        /// The level plane the card lies on, with up as the Kinect's tilt sensor gives it, at the
+        /// height of the table where the card is: the median height of the depth readings on the
+        /// card and the table around it. A tilt sensor doesn't jitter, and seen at a shallow
+        /// angle, the table's depth is rough enough that a plane fitted to a patch of it tilts a
+        /// few degrees one way or the other from picture to picture; a median height doesn't.
+        /// </summary>
+        private static Plane? LevelPlane(CardSighting sighting, PinholeCamera camera, DepthFrame depth, int step, Vector3 up)
+        {
+            var points = Collect(sighting, camera, depth, step, 0f, RingOuter);
+            if (points.Count < MinDepthPoints) return null;
+            var heights = points.ConvertAll(p => Vector3.Dot(up, p));
+            heights.Sort();
+            var height = heights[heights.Count / 2];
+            // Again from just the readings near that, so things nearby don't pull it.
+            var near = heights.FindAll(h => Math.Abs(h - height) < 0.02f);
+            if (near.Count < MinDepthPoints) return null;
+            return new Plane(up, near[near.Count / 2]);
         }
 
         /// <summary>The ring around the card the table's plane is taken from, as multiples of the card's size about its middle.</summary>
