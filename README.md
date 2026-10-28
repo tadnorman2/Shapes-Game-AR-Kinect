@@ -119,7 +119,9 @@ Things to know:
 Press **P** (or **F12**) at any time to save what the Kinect sees (a `.depth` file and a `.jpg`
 photo) and a screenshot to a `Captures` folder, keeping the last ten. A `.txt` file beside them
 records where the game thinks the color camera, the card and the arena are, so the overlay can
-be checked against the photo. On Windows the folder is
+be checked against the photo. **J** records three seconds of how the card is seen, picture by
+picture, to a `card-....csv` file in the same folder: where its corners were found, where each
+picture alone put it, and where the arena was, which shows where any wobble comes from. On Windows the folder is
 `%USERPROFILE%\AppData\LocalLow\DefaultCompany\<project folder name>\Captures`, and the game
 shows it on screen.
 

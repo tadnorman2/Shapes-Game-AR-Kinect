@@ -18,12 +18,17 @@ namespace ShapesKinect.Core
         public bool IsVisible { get; private set; }
         /// <summary>The latest sighting of it, for drawing where it was found.</summary>
         public CardSighting LastSighting { get; private set; }
+        /// <summary>Where the latest picture alone put the card, before smoothing, for looking into wobbles.</summary>
+        public CardPlacement LastMeasured { get; private set; }
 
         private readonly CardDetector detector = new CardDetector();
         private GrayImage lastImage;
         private long lastPicture = -1;
         private float lastSeen = float.NegativeInfinity;
         private int picturesSinceSearch = SearchEvery;
+        private Plane? lastPlane;
+        private float lastPlaneAt = float.NegativeInfinity;
+        private float? measuredSize;
 
         /// <summary>How long to keep a card that can't be seen, in seconds.</summary>
         public const float HoldSeconds = 1.5f;
@@ -36,6 +41,8 @@ namespace ShapesKinect.Core
         /// <summary>How much of a new placement goes into the smoothed one: little for a wobble, most for a real move.</summary>
         private const float MinBlend = 0.06f;
         private const float MaxBlend = 0.8f;
+        /// <summary>How long a plane found by depth stands in for one that can't be found, in seconds.</summary>
+        private const float PlaneMemorySeconds = 3f;
         /// <summary>The whole picture is searched at most every this many pictures, as it takes a while.</summary>
         private const int SearchEvery = 3;
 
@@ -69,8 +76,19 @@ namespace ShapesKinect.Core
                 if (best == null || s.Area > best.Area) best = s;
             }
             if (best == null) return true;
-            var placement = CardLocator.Locate(best, camera, depth);
+            // A plane found by depth in the last little while stands in when there's no depth around
+            // the card this picture, rather than jumping to placing it by the picture alone.
+            var lastPlane = now - lastPlaneAt <= PlaneMemorySeconds ? this.lastPlane : null;
+            var placement = CardLocator.Locate(best, camera, depth, lastPlane: lastPlane, size: measuredSize ?? CardLocator.PrintedSize);
             if (placement == null) return true;
+            LastMeasured = placement;
+            if (placement.FromDepth)
+            {
+                this.lastPlane = placement.Plane;
+                lastPlaneAt = now;
+                // The card's real size, for when there's no depth at all: prints vary.
+                measuredSize = measuredSize == null ? placement.Size : measuredSize + (placement.Size - measuredSize) * 0.1f;
+            }
             Current = Smooth(Current, placement);
             LastSighting = best;
             IsVisible = true;
@@ -84,6 +102,8 @@ namespace ShapesKinect.Core
             Current = null;
             LastSighting = null;
             IsVisible = false;
+            lastPlane = null;
+            measuredSize = null;
             lastImage = null;
             lastPicture = -1;
         }
@@ -121,7 +141,7 @@ namespace ShapesKinect.Core
             var up = Vector3.Normalize(Vector3.Lerp(a.Up, b.Up, blend));
             var forward = Vector3.Lerp(a.Forward, b.Forward, blend);
             var size = before.Size + (now.Size - before.Size) * blend;
-            return new CardPlacement(now.Id, new TableFrame(origin, up, forward), size, now.FromDepth);
+            return new CardPlacement(now.Id, new TableFrame(origin, up, forward), size, now.FromDepth, now.Plane);
         }
     }
 }

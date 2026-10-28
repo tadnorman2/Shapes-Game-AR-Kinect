@@ -39,6 +39,8 @@ namespace ShapesKinect.Game
         public static bool SwitchView => Pressed(Keyboard.current?.cKey);
         public static bool Quit => Pressed(Keyboard.current?.escapeKey);
         public static bool Screenshot => Pressed(Keyboard.current?.pKey) || Pressed(Keyboard.current?.f12Key);
+        /// <summary>J: record a few seconds of how the card is seen.</summary>
+        public static bool RecordCard => Pressed(Keyboard.current?.jKey);
 
         /// <summary>Which number key (1-9) went down this frame, as 0-8, or -1.</summary>
         public static int NumberKey
@@ -72,6 +74,8 @@ namespace ShapesKinect.Game
         public static bool SwitchView => Input.GetKeyDown(KeyCode.C);
         public static bool Quit => Input.GetKeyDown(KeyCode.Escape);
         public static bool Screenshot => Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.F12);
+        /// <summary>J: record a few seconds of how the card is seen.</summary>
+        public static bool RecordCard => Input.GetKeyDown(KeyCode.J);
 
         /// <summary>Which number key (1-9) went down this frame, as 0-8, or -1.</summary>
         public static int NumberKey

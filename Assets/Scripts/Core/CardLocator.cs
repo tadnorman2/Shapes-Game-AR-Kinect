@@ -15,15 +15,19 @@ namespace ShapesKinect.Core
         public TableFrame Frame { get; }
         /// <summary>The black square's side, as measured, in meters.</summary>
         public float Size { get; }
-        /// <summary>Whether the Kinect's depth was used, rather than the picture alone.</summary>
+        /// <summary>Whether the Kinect's depth around the card was measured in this picture.</summary>
         public bool FromDepth { get; }
 
-        public CardPlacement(int id, TableFrame frame, float size, bool fromDepth)
+        /// <summary>The plane the card was placed on, measured by depth now or before, or null if placed by the picture alone.</summary>
+        public Plane? Plane { get; }
+
+        public CardPlacement(int id, TableFrame frame, float size, bool fromDepth, Plane? plane = null)
         {
             Id = id;
             Frame = frame;
             Size = size;
             FromDepth = fromDepth;
+            Plane = plane;
         }
     }
 
@@ -40,14 +44,23 @@ namespace ShapesKinect.Core
         public const float PrintedSize = 0.15f;
         private const int MinDepthPoints = 12;
 
-        public static CardPlacement Locate(CardSighting sighting, PinholeCamera camera, DepthFrame depth, int step = 2)
+        /// <summary>
+        /// Where the card <paramref name="sighting"/> shows lies. Without depth around it this
+        /// picture, <paramref name="lastPlane"/>, the plane it was last found on, stands in, so the
+        /// card doesn't jump between the two ways of placing it; failing that, the picture alone
+        /// is used, taking the card to be <paramref name="size"/> across (as measured before, if
+        /// it was: prints come out a little bigger or smaller).
+        /// </summary>
+        public static CardPlacement Locate(CardSighting sighting, PinholeCamera camera, DepthFrame depth, int step = 2,
+            Plane? lastPlane = null, float size = PrintedSize)
         {
             var corners = new Vector3[4];
             var fromDepth = false;
-            var plane = depth == null ? null : DepthPlane(sighting, camera, depth, step);
+            var measuredPlane = depth == null ? null : DepthPlane(sighting, camera, depth, step);
+            var plane = measuredPlane ?? lastPlane;
             if (plane != null)
             {
-                fromDepth = true;
+                fromDepth = measuredPlane != null;
                 for (var i = 0; i < 4; i++)
                 {
                     var ray = Ray(camera, sighting.Corners[i]);
@@ -60,7 +73,7 @@ namespace ShapesKinect.Core
             }
             else
             {
-                var fromPicture = FromPicture(sighting, camera);
+                var fromPicture = FromPicture(sighting, camera, size);
                 if (fromPicture == null) return null;
                 corners = fromPicture;
             }
@@ -72,9 +85,9 @@ namespace ShapesKinect.Core
             var up = Vector3.Normalize(Vector3.Cross(toTop, right));
             // Up faces the Kinect, which is at the origin: the card is seen from above.
             if (Vector3.Dot(up, middle) > 0f) up = -up;
-            var size = (right.Length() + toTop.Length()) / 2;
-            if (size < 0.03f || size > 0.5f) return null;
-            return new CardPlacement(sighting.Id, new TableFrame(middle, up, toTop), size, fromDepth);
+            var measured = (right.Length() + toTop.Length()) / 2;
+            if (measured < 0.03f || measured > 0.5f) return null;
+            return new CardPlacement(sighting.Id, new TableFrame(middle, up, toTop), measured, fromDepth, plane);
         }
 
         /// <summary>The color camera's line of sight through <paramref name="pixel"/>, in camera space; one unit along it is one unit of its depth.</summary>
@@ -203,10 +216,10 @@ namespace ShapesKinect.Core
         }
 
         /// <summary>
-        /// The card's corners from the picture alone, knowing its printed size: the plane-to-picture
+        /// The card's corners from the picture alone, knowing its <paramref name="size"/>: the plane-to-picture
         /// mapping of its square, taken apart into how it's turned and where it is.
         /// </summary>
-        private static Vector3[] FromPicture(CardSighting sighting, PinholeCamera camera)
+        private static Vector3[] FromPicture(CardSighting sighting, PinholeCamera camera, float size)
         {
             // Corners as directions from the camera, in its own right/down/forward terms.
             var normalized = new Vector2[4];
@@ -221,7 +234,7 @@ namespace ShapesKinect.Core
             if (m == null) return null;
             var (r1, r2, t) = m.Value;
             // The unit square stands for the printed square, so its sides are that long.
-            var scale = 2f * PrintedSize / (r1.Length() + r2.Length());
+            var scale = 2f * size / (r1.Length() + r2.Length());
             r1 *= scale;
             r2 *= scale;
             t *= scale;

@@ -170,6 +170,28 @@ public class CardTests
         // Within a third of a degree, so the arena's far corners stay within a couple of millimeters.
         foreach (var u in ups) Assert.True(Vector3.Dot(u, trueUp) > Math.Cos(Math.PI / 540), $"up {u} vs {trueUp}");
     }
+    [Theory]
+    [InlineData(0.15f)]
+    // Printed "to fit the page", a little small.
+    [InlineData(0.141f)]
+    public void ACardDoesntJumpWhenDepthComesAndGoes(float printed)
+    {
+        var room = new SimulatedTable { Card = (0, 0.05f, 0.7f, 0.3f), CardSize = printed };
+        var camera = SimulatedTable.ColorCamera(true);
+        var tracker = new CardTracker();
+        var random = new Random(7);
+        Vector3? before = null;
+        for (var i = 0; i < 30; i++)
+        {
+            var depth = room.Render(512, 424, random);
+            // Every third picture, no depth at all.
+            if (i % 3 == 2) for (var k = 0; k < depth.Points.Length; k++) depth.Points[k] = DepthFrame.Invalid;
+            tracker.Update(Picture(room, camera, i), camera, depth, i / 30f);
+            var origin = tracker.Current.Frame.Origin;
+            if (i >= 3 && before != null) Assert.True(Vector3.Distance(origin, before.Value) < 0.001f, $"picture {i}: moved {Vector3.Distance(origin, before.Value) * 1000:0.0} mm");
+            before = origin;
+        }
+    }
 }
 
 public class BoardTests

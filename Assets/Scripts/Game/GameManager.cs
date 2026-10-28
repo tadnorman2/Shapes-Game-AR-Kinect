@@ -44,6 +44,11 @@ namespace ShapesKinect.Game
         private float rateTimer;
 
         private readonly CardTracker cardTracker = new CardTracker();
+        private System.IO.StreamWriter cardRecording;
+        private string cardRecordingPath;
+        private int cardRecordingLeft;
+        /// <summary>How many color pictures a card recording covers: about three seconds.</summary>
+        private const int CardRecordingPictures = 90;
         private Board board;
         private BoardTracker boardTracker;
 
@@ -183,6 +188,7 @@ namespace ShapesKinect.Game
 
         private void OnDestroy()
         {
+            cardRecording?.Dispose();
             Watchdog.Stop();
             kinect?.Dispose();
             simulator?.Dispose();
@@ -220,7 +226,11 @@ namespace ShapesKinect.Game
 
             watch.Restart();
             Watchdog.Mark("looking for the card");
-            if (cardTracker.Update(source.ColorGray, source.ColorCamera, frame, Time.unscaledTime)) slowestCard = System.Math.Max(slowestCard, watch.Elapsed.TotalMilliseconds);
+            if (cardTracker.Update(source.ColorGray, source.ColorCamera, frame, Time.unscaledTime))
+            {
+                slowestCard = System.Math.Max(slowestCard, watch.Elapsed.TotalMilliseconds);
+                RecordCardPicture();
+            }
             FollowCard();
             var cardOrigin = cardTracker.Current?.Frame.Origin;
             if (cardOrigin != null && lastCardOrigin != null) cardWobble = Mathf.Max(cardWobble, NVector3.Distance(cardOrigin.Value, lastCardOrigin.Value));
@@ -305,6 +315,8 @@ namespace ShapesKinect.Game
                 if (saved != null) Say($"Saved a screenshot and what the Kinect saw in {saved}.", 6f);
             }
 
+            if (Controls.RecordCard && cardRecording == null) StartCardRecording();
+
             if (Controls.SwitchControl)
             {
                 steering = steering == Steering.Stick ? Steering.Hand : Steering.Stick;
@@ -342,6 +354,50 @@ namespace ShapesKinect.Game
                 return;
             }
             board.MoveTo(card.Frame);
+        }
+
+        /// <summary>
+        /// Starts writing, for the next few seconds of color pictures, how the card was seen in
+        /// each: whether it was, its corners in the picture, where that picture alone put it, and
+        /// where the smoothed arena is. Shows where a wobble comes from.
+        /// </summary>
+        private void StartCardRecording()
+        {
+            try
+            {
+                var folder = System.IO.Path.Combine(Application.persistentDataPath, "Captures");
+                System.IO.Directory.CreateDirectory(folder);
+                cardRecordingPath = System.IO.Path.Combine(folder, "card-" + System.DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".csv");
+                cardRecording = new System.IO.StreamWriter(cardRecordingPath);
+                cardRecording.WriteLine("time,seen,card,c0x,c0y,c1x,c1y,c2x,c2y,c3x,c3y,depth,measured x,measured y,measured z,measured up x,measured up y,measured up z,measured forward x,measured forward y,measured forward z,arena x,arena y,arena z,arena up x,arena up y,arena up z,arena forward x,arena forward y,arena forward z");
+                cardRecordingLeft = CardRecordingPictures;
+                Say("Recording the card for a few seconds: keep it still.", 4f);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Shapes] Couldn't record the card: {e.Message}");
+                cardRecording = null;
+            }
+        }
+
+        private void RecordCardPicture()
+        {
+            if (cardRecording == null) return;
+            var seen = cardTracker.IsVisible;
+            var s = seen ? cardTracker.LastSighting : null;
+            var m = seen ? cardTracker.LastMeasured : null;
+            var a = cardTracker.Current;
+            string V(NVector3 v) => System.FormattableString.Invariant($"{v.X:0.00000},{v.Y:0.00000},{v.Z:0.00000}");
+            var line = System.FormattableString.Invariant($"{Time.unscaledTime:0.000},{(seen ? 1 : 0)},{(a != null ? a.Id + 1 : 0)},");
+            line += s == null ? ",,,,,,,," : string.Join(",", s.Corners.Select(c => System.FormattableString.Invariant($"{c.X:0.00},{c.Y:0.00}"))) + ",";
+            line += m == null ? ",,,,,,,,,," : $"{(m.FromDepth ? 1 : 0)},{V(m.Frame.Origin)},{V(m.Frame.Up)},{V(m.Frame.Forward)},";
+            line += a == null ? ",,,,,,,," : $"{V(a.Frame.Origin)},{V(a.Frame.Up)},{V(a.Frame.Forward)}";
+            cardRecording.WriteLine(line);
+            if (--cardRecordingLeft > 0) return;
+            cardRecording.Dispose();
+            cardRecording = null;
+            Debug.Log($"[Shapes] Recorded the card to {cardRecordingPath}.");
+            Say($"Recorded the card to {cardRecordingPath}.", 8f);
         }
 
         private void LoseBoard()
@@ -727,7 +783,7 @@ namespace ShapesKinect.Game
             var status = $"{source.Name} · {depthRate:0} depth frames/s · {1000f * Time.smoothDeltaTime:0} ms per frame · " +
                 $"{(steering == Steering.Stick ? "Stick" : "Hand")} control (Tab) · {(showColor ? "Color" : "Depth")} view (C)";
             status += cardTracker.Current == null ? " · No card seen" : $" · Card {cardTracker.Current.Id + 1}{(cardTracker.IsVisible ? "" : " (hidden)")}";
-            if (state != State.Playing) status += " · P saves a screenshot · K switches Kinect/simulator";
+            if (state != State.Playing) status += " · P saves a screenshot · J records the card · K switches Kinect/simulator";
             if (source is SimulatedDepthSource simulated)
             {
                 var props = SimulatedDepthSource.Props.Select((p, i) => $"{i + 1}: {p.name}{(simulated.IsPropOn(i) ? " (on)" : "")}");
