@@ -126,6 +126,50 @@ public class CardTests
         var middle = room.RoomToCamera(new Vector3(-0.25f, 0f, 0.75f));
         Assert.True(Vector3.Distance(tracker.Current.Frame.Origin, middle) < 0.01f);
     }
+    private static double Gauss(Random r) => Math.Sqrt(-2 * Math.Log(1 - r.NextDouble())) * Math.Cos(2 * Math.PI * r.NextDouble());
+
+    [Theory]
+    [InlineData(45f, 0.55f, 0.6f)]
+    // Near the table's far edge, where the ring of table around the card runs into the wall.
+    [InlineData(35f, 0.5f, 0.9f)]
+    public void ACardLyingStillHoldsStill(float pitch, float height, float z)
+    {
+        var room = new SimulatedTable { PitchDegrees = pitch, SensorPosition = new Vector3(0f, height, -0.1f), Card = (0, 0.05f, z, 0.3f), Noise = 0.003f };
+        var camera = SimulatedTable.ColorCamera(true);
+        var tracker = new CardTracker();
+        var random = new Random(5);
+        var (_, cx, cz, turn) = room.Card.Value;
+        var origins = new System.Collections.Generic.List<Vector3>();
+        var ups = new System.Collections.Generic.List<Vector3>();
+        for (var i = 0; i < 30; i++)
+        {
+            // A real camera: brightness drifting as exposure adjusts, and grain.
+            var image = Picture(room, camera, i);
+            var gain = 0.6 + 0.1 * Math.Sin(i * 0.7);
+            for (var k = 0; k < image.Pixels.Length; k++) image.Pixels[k] = (byte)Math.Max(0, Math.Min(255, image.Pixels[k] * gain + Gauss(random) * 6));
+            // Black ink barely reflects the depth camera's infrared: few readings there, and wild ones.
+            var depth = room.Render(512, 424, random);
+            for (var k = 0; k < depth.Points.Length; k++)
+            {
+                var p = depth.Points[k];
+                if (!DepthFrame.IsValid(p)) continue;
+                var r = room.CameraToRoom(p);
+                float dx = r.X - cx, dz = r.Z - cz, c = (float)Math.Cos(turn), s = (float)Math.Sin(turn);
+                if (Math.Abs(r.Y) > 0.01f || Math.Abs(dx * c - dz * s) > room.CardSize / 2 || Math.Abs(dx * s + dz * c) > room.CardSize / 2) continue;
+                depth.Points[k] = random.NextDouble() < 0.6 ? DepthFrame.Invalid : p * (1f + (float)Gauss(random) * 0.02f);
+            }
+            tracker.Update(image, camera, depth, i / 30f);
+            if (i < 10 || tracker.Current == null) continue;
+            origins.Add(tracker.Current.Frame.Origin);
+            ups.Add(tracker.Current.Frame.Up);
+        }
+        Assert.True(origins.Count >= 15);
+        var trueUp = room.RoomToCamera(Vector3.UnitY) - room.RoomToCamera(Vector3.Zero);
+        var middle = room.RoomToCamera(new Vector3(cx, 0f, cz));
+        foreach (var o in origins) Assert.True(Vector3.Distance(o, middle) < 0.004f, $"middle {o} vs {middle}");
+        // Within a third of a degree, so the arena's far corners stay within a couple of millimeters.
+        foreach (var u in ups) Assert.True(Vector3.Dot(u, trueUp) > Math.Cos(Math.PI / 540), $"up {u} vs {trueUp}");
+    }
 }
 
 public class BoardTests

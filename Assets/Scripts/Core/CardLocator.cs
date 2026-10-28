@@ -29,7 +29,7 @@ namespace ShapesKinect.Core
 
     /// <summary>
     /// Works out where a card seen in the color picture lies. The depth camera gives the plane
-    /// it lies on, from its readings inside the card; the card's corners are where the color
+    /// it lies on, from its readings on the table around it; the card's corners are where the color
     /// camera's lines of sight through the corners seen meet that plane. That's steadier than the
     /// picture alone, which has to judge the card's tilt from how squashed it looks, and is used
     /// only when there's no depth there.
@@ -85,15 +85,86 @@ namespace ShapesKinect.Core
             return camera.Forward + camera.Right * x + camera.Down * y;
         }
 
-        /// <summary>The plane through the depth readings that land inside the card, or null if there are too few or they aren't flat.</summary>
+        /// <summary>
+        /// The plane the card lies on, from the depth readings on the table in a ring around it,
+        /// or null if there are too few or they aren't flat. Not from the card itself: the depth
+        /// camera's infrared barely reflects off black ink, so its readings there are few and
+        /// rough. The plane must pass through the card, so of the planes through the card's
+        /// middle and the ring, the one most of the ring lies on is taken: a wall, an object or a
+        /// hand nearby, or the floor past a table's edge, doesn't tip it.
+        /// </summary>
         private static Plane? DepthPlane(CardSighting sighting, PinholeCamera camera, DepthFrame depth, int step)
         {
-            // Well inside the card, so readings from past its edges don't creep in.
+            var middle = CardMiddle(sighting, camera, depth, step);
+            if (middle == null) return null;
+            var ring = Collect(sighting, camera, depth, step, RingInner, RingOuter);
+            if (ring.Count < MinDepthPoints) return null;
+
+            // The plane through the middle and two ring readings that the most readings agree with.
+            var random = new Random(1);
+            Plane? best = null;
+            var bestCount = 0;
+            for (var i = 0; i < 60; i++)
+            {
+                var a = ring[random.Next(ring.Count)];
+                var b = ring[random.Next(ring.Count)];
+                var normal = Vector3.Cross(a - middle.Value, b - middle.Value);
+                if (normal.LengthSquared() < 1e-8f) continue;
+                normal = Vector3.Normalize(normal);
+                var candidate = new Plane(normal, Vector3.Dot(normal, middle.Value));
+                var count = 0;
+                foreach (var p in ring) if (OnPlane(candidate, p)) count++;
+                if (count <= bestCount) continue;
+                bestCount = count;
+                best = candidate;
+            }
+            if (best == null || bestCount < MinDepthPoints) return null;
+            var kept = ring.FindAll(p => OnPlane(best.Value, p));
+            var plane = PlaneFit.Fit(kept);
+            // A plane fitted through the ring alone can sit a little off the card; it's flat on
+            // the table, so that's fine, but it must not be far off.
+            return Math.Abs(plane.SignedDistance(middle.Value)) < 0.02f ? plane : (Plane?)null;
+        }
+
+        private static bool OnPlane(Plane plane, Vector3 p) => Math.Abs(plane.SignedDistance(p)) < 0.006f + 0.003f * p.Z * p.Z;
+
+        /// <summary>
+        /// Where the card's middle is, from the depth readings on its white cells near the middle:
+        /// the median of those, as some of the readings on the black ink are wild.
+        /// </summary>
+        private static Vector3? CardMiddle(CardSighting sighting, PinholeCamera camera, DepthFrame depth, int step)
+        {
+            var inside = Collect(sighting, camera, depth, step, 0f, 0.7f);
+            if (inside.Count < 3) return null;
+            inside.Sort((a, b) => a.Z.CompareTo(b.Z));
+            var median = inside[inside.Count / 2];
+            // The middle of the card along the line of sight through it, at that depth.
+            var corners = sighting.Corners;
+            var ray = Ray(camera, (corners[0] + corners[1] + corners[2] + corners[3]) / 4);
+            var t = Vector3.Dot(median - camera.Position, camera.Forward) / Vector3.Dot(ray, camera.Forward);
+            return camera.Position + ray * t;
+        }
+
+        /// <summary>The ring around the card the table's plane is taken from, as multiples of the card's size about its middle.</summary>
+        private const float RingInner = 1.3f;
+        private const float RingOuter = 2.6f;
+
+        /// <summary>
+        /// The depth readings that show up in the color picture between <paramref name="inner"/>
+        /// and <paramref name="outer"/> times the card's outline, scaled about its middle.
+        /// </summary>
+        private static List<Vector3> Collect(CardSighting sighting, PinholeCamera camera, DepthFrame depth, int step, float inner, float outer)
+        {
             var middle = (sighting.Corners[0] + sighting.Corners[1] + sighting.Corners[2] + sighting.Corners[3]) / 4;
-            var inner = new Vector2[4];
-            for (var i = 0; i < 4; i++) inner[i] = middle + (sighting.Corners[i] - middle) * 0.8f;
+            var innerQuad = new Vector2[4];
+            var outerQuad = new Vector2[4];
+            for (var i = 0; i < 4; i++)
+            {
+                innerQuad[i] = middle + (sighting.Corners[i] - middle) * inner;
+                outerQuad[i] = middle + (sighting.Corners[i] - middle) * outer;
+            }
             float minX = float.MaxValue, maxX = float.MinValue, minY = float.MaxValue, maxY = float.MinValue;
-            foreach (var c in inner)
+            foreach (var c in outerQuad)
             {
                 minX = Math.Min(minX, c.X); maxX = Math.Max(maxX, c.X);
                 minY = Math.Min(minY, c.Y); maxY = Math.Max(maxY, c.Y);
@@ -106,16 +177,12 @@ namespace ShapesKinect.Core
                     var p = depth[x, y];
                     if (!DepthFrame.IsValid(p)) continue;
                     var pixel = camera.Project(p);
-                    if (pixel.X < minX || pixel.X > maxX || pixel.Y < minY || pixel.Y > maxY || !Inside(inner, pixel)) continue;
+                    if (pixel.X < minX || pixel.X > maxX || pixel.Y < minY || pixel.Y > maxY) continue;
+                    if (!Inside(outerQuad, pixel) || (inner > 0f && Inside(innerQuad, pixel))) continue;
                     points.Add(p);
                 }
             }
-            if (points.Count < MinDepthPoints) return null;
-            var plane = PlaneFit.Fit(points);
-            // Once more without readings well off it, like a fingertip over the card.
-            var kept = points.FindAll(p => Math.Abs(plane.SignedDistance(p)) < 0.01f + 0.004f * p.Z * p.Z);
-            if (kept.Count < MinDepthPoints) return null;
-            return PlaneFit.Fit(kept);
+            return points;
         }
 
         /// <summary>Whether <paramref name="p"/> is inside the convex four-cornered <paramref name="quad"/>.</summary>

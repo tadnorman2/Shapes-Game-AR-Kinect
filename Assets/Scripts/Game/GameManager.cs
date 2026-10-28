@@ -76,6 +76,9 @@ namespace ShapesKinect.Game
         private double slowestTick;
         private double slowestTracking;
         private double slowestCard;
+        /// <summary>How far the arena moved, at most, from one Unity frame to the next, in meters, since the last log line.</summary>
+        private float cardWobble;
+        private NVector3? lastCardOrigin;
         private double slowestView;
         private float slowestFrame;
         private float nextLog;
@@ -219,6 +222,9 @@ namespace ShapesKinect.Game
             Watchdog.Mark("looking for the card");
             if (cardTracker.Update(source.ColorGray, source.ColorCamera, frame, Time.unscaledTime)) slowestCard = System.Math.Max(slowestCard, watch.Elapsed.TotalMilliseconds);
             FollowCard();
+            var cardOrigin = cardTracker.Current?.Frame.Origin;
+            if (cardOrigin != null && lastCardOrigin != null) cardWobble = Mathf.Max(cardWobble, NVector3.Distance(cardOrigin.Value, lastCardOrigin.Value));
+            lastCardOrigin = cardOrigin;
 
             var newFrame = frame != null && frame.Number != lastFrameNumber;
             if (newFrame)
@@ -504,11 +510,12 @@ namespace ShapesKinect.Game
             nextLog = Time.realtimeSinceStartup + LogInterval;
             Debug.Log($"[Shapes] {Time.realtimeSinceStartup:0.0} s · {source.Name} · {state} · {depthRate:0} depth pictures/s · " +
                 $"slowest in the last {LogInterval:0} s: frame {slowestFrame:0} ms, Kinect {slowestTick:0} ms, " +
-                $"card {slowestCard:0} ms, objects {slowestTracking:0} ms, view {slowestView:0} ms · memory {System.GC.GetTotalMemory(false) / 1048576} MB");
+                $"card {slowestCard:0} ms (moved up to {cardWobble * 1000:0.0} mm a frame), objects {slowestTracking:0} ms, view {slowestView:0} ms · memory {System.GC.GetTotalMemory(false) / 1048576} MB");
             slowestFrame = 0f;
             slowestTick = 0;
             slowestTracking = 0;
             slowestCard = 0;
+            cardWobble = 0f;
             slowestView = 0;
         }
 
